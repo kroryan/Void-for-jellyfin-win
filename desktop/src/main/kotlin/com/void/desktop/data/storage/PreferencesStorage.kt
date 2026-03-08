@@ -13,7 +13,8 @@ data class AppPreferences(
     val userId: String = "",
     val userName: String = "",
     val serverId: String = "",
-    val deviceId: String = UUID.randomUUID().toString()
+    val deviceId: String = UUID.randomUUID().toString(),
+    val customVlcPath: String = ""
 )
 
 object PreferencesStorage {

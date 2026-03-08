@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeMute
@@ -59,7 +61,8 @@ fun VideoPlayerScreen(
     title: String,
     onBack: () -> Unit,
     onFullscreenToggle: (() -> Unit)? = null,
-    isFullscreen: Boolean = false
+    isFullscreen: Boolean = false,
+    customVlcPath: String = ""
 ) {
     var vlcState by remember { mutableStateOf<VlcState>(VlcState.Loading) }
     var mediaPlayerFactory by remember { mutableStateOf<MediaPlayerFactory?>(null) }
@@ -95,22 +98,43 @@ fun VideoPlayerScreen(
     // Initialize VLC
     LaunchedEffect(Unit) {
         try {
-            val found = NativeDiscovery().discover()
-            if (!found) {
+            println("=== Initializing VLC ===")
+
+            // First, try to find VLC and set the plugin path
+            val vlcPluginPath = findVlcPluginPath(customVlcPath)
+
+            if (vlcPluginPath == null) {
+                println("Could not find VLC plugin path")
                 vlcState = VlcState.NotFound
                 return@LaunchedEffect
             }
 
+            println("Found VLC plugins at: $vlcPluginPath")
+
+            // Create MediaPlayerFactory with explicit plugin path
+            println("Creating MediaPlayerFactory...")
             val args = mutableListOf("--no-video-title-show", "--quiet", "--no-xlib")
             args.addAll(currentAspectRatio.vlcArgs)
+            println("VLC args: ${args.joinToString(" ")}")
 
-            val factory = MediaPlayerFactory(*args.toTypedArray())
+            val factory = try {
+                // Try with explicit plugin path first
+                MediaPlayerFactory("--plugin-path=$vlcPluginPath", *args.toTypedArray())
+            } catch (e: Exception) {
+                println("Failed with plugin path, trying without: ${e.message}")
+                // Fallback to without explicit path
+                MediaPlayerFactory(*args.toTypedArray())
+            }
+
             val player = factory.mediaPlayers().newEmbeddedMediaPlayer()
 
             mediaPlayerFactory = factory
             mediaPlayer = player
             vlcState = VlcState.Ready
+            println("VLC initialized successfully")
         } catch (e: Exception) {
+            println("VLC initialization error: ${e.message}")
+            e.printStackTrace()
             vlcState = VlcState.NotFound
         }
     }
@@ -483,6 +507,65 @@ private fun ControlButton(
 
 @Composable
 private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
+    var diagnosticInfo by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        val info = buildString {
+            val vlcPaths = mutableListOf<String>()
+
+            // Standard paths
+            vlcPaths.add("C:\\Program Files\\VideoLAN\\VLC")
+            vlcPaths.add("C:\\Program Files (x86)\\VideoLAN\\VLC")
+            System.getenv("LOCALAPPDATA")?.let {
+                vlcPaths.add("$it\\Programs\\VideoLAN\\VLC")
+            }
+            System.getenv("ProgramFiles")?.let {
+                vlcPaths.add("$it\\VideoLAN\\VLC")
+            }
+            System.getenv("ProgramFiles(x86)")?.let {
+                vlcPaths.add("$it\\VideoLAN\\VLC")
+            }
+
+            appendLine("VLC Diagnostic Information:")
+            appendLine("")
+
+            // Check if VLC is in PATH
+            try {
+                val process = ProcessBuilder("where", "vlc").start()
+                val output = process.inputStream.bufferedReader().readText()
+                if (output.isNotBlank()) {
+                    appendLine("✓ VLC found in PATH: ${output.lines().first()}")
+                    appendLine("")
+                }
+            } catch (e: Exception) {
+                appendLine("✗ VLC not found in PATH")
+                appendLine("")
+            }
+
+            vlcPaths.distinct().forEach { path ->
+                val vlcDir = java.io.File(path)
+                val pluginsDir = java.io.File(path, "plugins")
+                val libvlccore = java.io.File(path, "libvlccore.dll")
+                val libvlc = java.io.File(path, "libvlc.dll")
+                val vlcExe = java.io.File(path, "vlc.exe")
+
+                appendLine("Path: $path")
+                appendLine("  Directory: ${if (vlcDir.exists()) "✓" else "✗"}")
+                appendLine("  vlc.exe: ${if (vlcExe.exists()) "✓" else "✗"}")
+                appendLine("  plugins/: ${if (pluginsDir.exists()) "✓" else "✗"}")
+                appendLine("  libvlc.dll: ${if (libvlc.exists()) "✓" else "✗"}")
+                appendLine("  libvlccore.dll: ${if (libvlccore.exists()) "✓" else "✗"}")
+                appendLine("")
+            }
+
+            appendLine("System Properties:")
+            appendLine("  java.library.path: ${System.getProperty("java.library.path")}")
+            appendLine("  vlc.plugin.path: ${System.getProperty("vlc.plugin.path", "Not set")}")
+            appendLine("  user.home: ${System.getProperty("user.home")}")
+        }
+        diagnosticInfo = info
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -492,7 +575,7 @@ private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
             Icons.Default.Warning,
             contentDescription = null,
             tint = Color(0xFFFFD700),
-            modifier = Modifier.size(56.dp)
+            modifier = Modifier.size(64.dp)
         )
         Spacer(Modifier.height(16.dp))
         Text(
@@ -502,11 +585,49 @@ private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Install VLC 64-bit from videolan.org to enable playback",
-            color = Color.White.copy(alpha = 0.6f),
+            "Void for Jellyfin requires VLC 64-bit to play videos",
+            color = Color.White.copy(alpha = 0.8f),
             style = MaterialTheme.typography.bodyMedium
         )
-        Spacer(Modifier.height(32.dp))
+        Text(
+            "Please install VLC from videolan.org and try again",
+            color = Color.White.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        // Diagnostic section
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color.White.copy(alpha = 0.1f)
+            )
+        ) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Diagnostic Information",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Text(
+                    diagnosticInfo,
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                )
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
                 onClick = onBack,
@@ -517,10 +638,19 @@ private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
                 Text("Go Back")
             }
             Button(onClick = {
-                val vlcPaths = listOf(
-                    "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe",
-                    "C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe"
-                )
+                val vlcPaths = mutableListOf<String>()
+                vlcPaths.add("C:\\Program Files\\VideoLAN\\VLC\\vlc.exe")
+                vlcPaths.add("C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe")
+                System.getenv("LOCALAPPDATA")?.let {
+                    vlcPaths.add("$it\\Programs\\VideoLAN\\VLC\\vlc.exe")
+                }
+                System.getenv("ProgramFiles")?.let {
+                    vlcPaths.add("$it\\VideoLAN\\VLC\\vlc.exe")
+                }
+                System.getenv("ProgramFiles(x86)")?.let {
+                    vlcPaths.add("$it\\VideoLAN\\VLC\\vlc.exe")
+                }
+
                 val vlcExe = vlcPaths.firstOrNull { java.io.File(it).exists() }
                 try {
                     if (vlcExe != null) {
@@ -528,7 +658,14 @@ private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
                     } else {
                         ProcessBuilder("vlc", streamUrl).start()
                     }
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                    javax.swing.JOptionPane.showMessageDialog(
+                        null,
+                        "Could not launch VLC. Please open VLC manually and play:\n\n${streamUrl}",
+                        "Error",
+                        javax.swing.JOptionPane.ERROR_MESSAGE
+                    )
+                }
             }) {
                 Icon(Icons.Default.PlayCircle, null)
                 Spacer(Modifier.width(6.dp))
@@ -555,4 +692,153 @@ private fun formatTime(seconds: Long): String {
     } else {
         String.format("%d:%02d", minutes, secs)
     }
+}
+
+// Manual VLC discovery - check common installation paths
+fun discoverVlcManually(): Boolean {
+    println("=== Starting manual VLC discovery ===")
+
+    // Try to find VLC by checking PATH first
+    try {
+        val process = ProcessBuilder("where", "vlc").start()
+        val output = process.inputStream.bufferedReader().readText()
+        if (output.isNotBlank()) {
+            val vlcExePath = output.lines().first()
+            val vlcDir = java.io.File(vlcExePath).parent
+            println("Found VLC in PATH: $vlcDir")
+            if (validateAndSetVlcPath(vlcDir)) return true
+        }
+    } catch (e: Exception) {
+        println("VLC not found in PATH: ${e.message}")
+    }
+
+    // Check standard installation paths
+    val vlcPaths = mutableListOf<String>()
+
+    // Standard paths
+    vlcPaths.add("C:\\Program Files\\VideoLAN\\VLC")
+    vlcPaths.add("C:\\Program Files (x86)\\VideoLAN\\VLC")
+    System.getenv("LOCALAPPDATA")?.let {
+        vlcPaths.add("$it\\Programs\\VideoLAN\\VLC")
+    }
+
+    // Environment-based paths
+    System.getenv("ProgramFiles")?.let {
+        vlcPaths.add("$it\\VideoLAN\\VLC")
+    }
+    System.getenv("ProgramFiles(x86)")?.let {
+        vlcPaths.add("$it\\VideoLAN\\VLC")
+    }
+
+    for (path in vlcPaths.distinct()) {
+        if (validateAndSetVlcPath(path)) return true
+    }
+
+    println("=== VLC not found in any location ===")
+    return false
+}
+
+// Find VLC plugin path - returns null if not found
+fun findVlcPluginPath(customPath: String = ""): String? {
+    println("=== Finding VLC plugin path ===")
+    println("Custom path: \"$customPath\"")
+
+    // List of possible VLC locations
+    val vlcPaths = mutableListOf<String>()
+
+    // If custom path is provided, check it first
+    if (customPath.isNotBlank()) {
+        println("Checking custom path first...")
+        vlcPaths.add(0, customPath.trim())
+    }
+
+    // Standard paths
+    vlcPaths.add("C:\\Program Files\\VideoLAN\\VLC")
+    vlcPaths.add("C:\\Program Files (x86)\\VideoLAN\\VLC")
+    System.getenv("LOCALAPPDATA")?.let {
+        vlcPaths.add("$it\\Programs\\VideoLAN\\VLC")
+    }
+    System.getenv("ProgramFiles")?.let {
+        vlcPaths.add("$it\\VideoLAN\\VLC")
+    }
+    System.getenv("ProgramFiles(x86)")?.let {
+        vlcPaths.add("$it\\VideoLAN\\VLC")
+    }
+
+    // Try to find VLC in PATH
+    try {
+        val process = ProcessBuilder("where", "vlc").start()
+        val output = process.inputStream.bufferedReader().readText()
+        if (output.isNotBlank()) {
+            val vlcExePath = output.lines().first()
+            val vlcDir = java.io.File(vlcExePath).parent
+            println("Found VLC in PATH: $vlcDir")
+            if (customPath.isBlank()) {
+                vlcPaths.add(0, vlcDir) // Add at the beginning if no custom path
+            } else {
+                vlcPaths.add(vlcDir)
+            }
+        }
+    } catch (e: Exception) {
+        println("VLC not found in PATH")
+    }
+
+    for (path in vlcPaths.distinct()) {
+        val pluginsDir = java.io.File(path, "plugins")
+        val libvlccore = java.io.File(path, "libvlccore.dll")
+        val libvlc = java.io.File(path, "libvlc.dll")
+
+        println("Checking: $path")
+        println("  plugins/: ${pluginsDir.exists()}")
+        println("  libvlc.dll: ${libvlc.exists()}")
+        println("  libvlccore.dll: ${libvlccore.exists()}")
+
+        if (pluginsDir.exists() && (libvlccore.exists() || libvlc.exists())) {
+            println("✓ Found VLC at: $path")
+
+            // Set system properties
+            System.setProperty("vlc.plugin.path", pluginsDir.absolutePath)
+            System.setProperty("java.library.path", path)
+
+            return pluginsDir.absolutePath
+        }
+    }
+
+    println("✗ VLC not found")
+    return null
+}
+
+private fun validateAndSetVlcPath(path: String): Boolean {
+    val vlcDir = java.io.File(path)
+    val pluginsDir = java.io.File(path, "plugins")
+    val libvlccore = java.io.File(path, "libvlccore.dll")
+    val libvlc = java.io.File(path, "libvlc.dll")
+
+    println("Checking VLC path: $path")
+    println("  Directory exists: ${vlcDir.exists()}")
+    println("  libvlccore.dll exists: ${libvlccore.exists()}")
+    println("  libvlc.dll exists: ${libvlc.exists()}")
+    println("  plugins/ exists: ${pluginsDir.exists()}")
+
+    if (vlcDir.exists() && (libvlccore.exists() || libvlc.exists())) {
+        println("✓ Found VLC at: $path")
+
+        // Set plugin path
+        if (pluginsDir.exists()) {
+            System.setProperty("vlc.plugin.path", pluginsDir.absolutePath)
+            println("  Set VLC plugin path: ${pluginsDir.absolutePath}")
+        }
+
+        // Add to java.library.path
+        try {
+            System.setProperty("java.library.path", path)
+            println("  Set java.library.path: $path")
+        } catch (e: Exception) {
+            println("  Warning: Could not set java.library.path: ${e.message}")
+        }
+
+        return true
+    }
+
+    return false
 }

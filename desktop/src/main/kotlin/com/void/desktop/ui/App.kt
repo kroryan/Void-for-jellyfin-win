@@ -104,7 +104,8 @@ fun App(
                     title = screen.title,
                     onBack = { pop() },
                     onFullscreenToggle = onFullscreenToggle,
-                    isFullscreen = isFullscreen
+                    isFullscreen = isFullscreen,
+                    customVlcPath = screen.prefs.customVlcPath
                 )
 
                 else -> {}
@@ -187,6 +188,11 @@ fun App(
                                 PreferencesStorage.clear()
                                 navStack.clear()
                                 navStack.add(Screen.ServerSetup)
+                            },
+                            onSavePreferences = { newPrefs ->
+                                PreferencesStorage.save(newPrefs)
+                                // Update the current screen with new prefs
+                                navStack[navStack.size - 1] = Screen.Settings(newPrefs)
                             }
                         )
 

@@ -23,8 +23,12 @@ import com.void.desktop.data.storage.AppPreferences
 @Composable
 fun SettingsScreen(
     prefs: AppPreferences,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onSavePreferences: (AppPreferences) -> Unit = {}
 ) {
+    var customVlcPath by remember { mutableStateOf(prefs.customVlcPath) }
+    var showVlcPathDialog by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -154,6 +158,55 @@ fun SettingsScreen(
 
             Divider(Modifier.padding(vertical = 8.dp))
 
+            // Playback section
+            Text(
+                text = "Playback",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.PlayCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "VLC Path",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = if (customVlcPath.isEmpty()) {
+                                    "Auto-detect (Recommended)"
+                                } else {
+                                    customVlcPath
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2
+                            )
+                        }
+                        Button(onClick = { showVlcPathDialog = true }) {
+                            Text("Change")
+                        }
+                    }
+                }
+            }
+
+            Divider(Modifier.padding(vertical = 8.dp))
+
             // Actions section
             Text(
                 text = "Actions",
@@ -202,6 +255,54 @@ fun SettingsScreen(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
+    }
+
+    // VLC Path Dialog
+    if (showVlcPathDialog) {
+        var vlcPathInput by remember { mutableStateOf(customVlcPath) }
+
+        AlertDialog(
+            onDismissRequest = { showVlcPathDialog = false },
+            title = { Text("VLC Installation Path") },
+            text = {
+                Column {
+                    Text(
+                        "Enter the path to your VLC installation directory:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = vlcPathInput,
+                        onValueChange = { vlcPathInput = it },
+                        placeholder = { Text("C:\\Program Files\\VideoLAN\\VLC") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Leave empty to use auto-detection",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        customVlcPath = vlcPathInput.trim()
+                        onSavePreferences(prefs.copy(customVlcPath = customVlcPath))
+                        showVlcPathDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showVlcPathDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
