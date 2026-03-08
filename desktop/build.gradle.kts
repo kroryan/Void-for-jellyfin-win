@@ -49,12 +49,21 @@ compose.desktop {
             packageVersion = "0.2.6"
             description = "A beautiful Jellyfin client for Windows"
             vendor = "Void"
+            includeAllModules = true
+
+            appResourcesRootDir = project.layout.projectDirectory.dir("src/main/resources")
 
             windows {
                 menuGroup = "Void for Jellyfin"
                 upgradeUuid = "e4e1c0ea-7a25-4e1a-8e5d-4f6c8f7d8a9b"
                 iconFile.set(project.file("src/main/resources/icon.ico"))
+                shortcut = true
+                dirChooser = true
+                // Create both installer and portable versions
+                perUserInstall = true
             }
+
+            modules("java.sql", "jdk.unsupported")
         }
     }
 }
