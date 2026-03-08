@@ -8,7 +8,11 @@
       "Bash(python:*)",
       "WebSearch",
       "Bash(mv:*)",
-      "Bash(./gradlew:*)"
+      "Bash(./gradlew:*)",
+      "Bash(git add:*)",
+      "Bash(./gradlew.bat :desktop:compileKotlinJvm:*)",
+      "Bash(./gradlew.bat :desktop:compileKotlin:*)",
+      "Bash(./gradlew.bat :desktop:jar:*)"
     ]
   }
 }

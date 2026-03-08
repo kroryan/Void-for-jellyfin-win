@@ -112,7 +112,7 @@ fun VideoPlayerScreen(
             println("Found VLC at: ${vlcInfo.vlcDir}")
             println("Plugins at: ${vlcInfo.pluginDir}")
 
-            // Try to load native libraries explicitly
+            // Configure runtime discovery before creating the player factory
             if (!loadVlcNativeLibraries(vlcInfo)) {
                 println("Failed to load VLC native libraries")
                 vlcState = VlcState.NotFound
@@ -122,12 +122,18 @@ fun VideoPlayerScreen(
             // Create MediaPlayerFactory with explicit plugin path
             println("Creating MediaPlayerFactory...")
             val args = mutableListOf("--no-video-title-show", "--quiet", "--no-xlib")
-            args.add("--plugin-path=${vlcInfo.pluginDir}")
             args.addAll(currentAspectRatio.vlcArgs)
             println("VLC args: ${args.joinToString(" ")}")
 
             try {
-                val factory = MediaPlayerFactory(*args.toTypedArray())
+                // Prefer explicit plugin path, but keep a fallback for installations where
+                // VLC can self-resolve plugins once native libs are located.
+                val factory = try {
+                    MediaPlayerFactory("--plugin-path=${vlcInfo.pluginDir}", *args.toTypedArray())
+                } catch (e: Exception) {
+                    println("Factory init with plugin path failed, retrying without explicit plugin path: ${e.message}")
+                    MediaPlayerFactory(*args.toTypedArray())
+                }
                 val player = factory.mediaPlayers().newEmbeddedMediaPlayer()
 
                 mediaPlayerFactory = factory
@@ -331,7 +337,7 @@ fun VideoPlayerScreen(
                     )
 
                     Text(
-                        text = "${formatTime((position * 100).toLong())} / ${formatTime(duration)}",
+                        text = "${formatTime((position * duration).toLong())} / ${formatTime(duration)}",
                         color = Color.White.copy(alpha = 0.8f),
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -756,7 +762,7 @@ fun findVlcPath(customPath: String = ""): VlcInfo? {
 
     // Custom path first
     if (customPath.isNotBlank()) {
-        vlcPaths.add(customPath.trim())
+        vlcPaths.add(normalizeVlcPath(customPath.trim()))
     }
 
     // Standard paths
@@ -777,10 +783,15 @@ fun findVlcPath(customPath: String = ""): VlcInfo? {
         val process = ProcessBuilder("where", "vlc").start()
         val output = process.inputStream.bufferedReader().readText()
         if (output.isNotBlank()) {
-            val vlcExePath = output.lines().first()
-            val vlcDir = java.io.File(vlcExePath).parent
+            val vlcExePath = output
+                .lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.isNotBlank() }
+            val vlcDir = vlcExePath?.let { normalizeVlcPath(it) }
             println("Found VLC in PATH: $vlcDir")
-            if (customPath.isBlank()) vlcPaths.add(0, vlcDir)
+            if (customPath.isBlank() && !vlcDir.isNullOrBlank()) {
+                vlcPaths.add(0, vlcDir)
+            }
         }
     } catch (e: Exception) {
         println("VLC not in PATH")
@@ -813,42 +824,15 @@ fun loadVlcNativeLibraries(vlcInfo: VlcInfo): Boolean {
     println("=== Setting up VLC native libraries ===")
 
     try {
-        // Set system properties BEFORE any VLCJ initialization
-        System.setProperty("java.library.path", vlcInfo.vlcDir)
+        // Hint JNA/VLCJ where libvlc resides before factory creation.
+        System.setProperty("jna.library.path", vlcInfo.vlcDir)
         System.setProperty("vlc.plugin.path", vlcInfo.pluginDir)
 
         println("System properties set:")
-        println("  java.library.path: ${vlcInfo.vlcDir}")
+        println("  jna.library.path: ${vlcInfo.vlcDir}")
         println("  vlc.plugin.path: ${vlcInfo.pluginDir}")
 
-        // Try to copy VLC DLLs to temp directory to help with loading
-        println("\nAttempting to copy VLC DLLs to temp directory...")
-        try {
-            val tempDir = java.io.File(System.getProperty("java.io.tmpdir"))
-            val libvlccore = java.io.File(vlcInfo.vlcDir, "libvlccore.dll")
-            val libvlc = java.io.File(vlcInfo.vlcDir, "libvlc.dll")
-
-            val tempLibvlccore = java.io.File(tempDir, "libvlccore.dll")
-            val tempLibvlc = java.io.File(tempDir, "libvlc.dll")
-
-            if (libvlccore.exists()) {
-                libvlccore.copyTo(tempLibvlccore, overwrite = true)
-                println("  Copied libvlccore.dll to: ${tempLibvlccore.absolutePath}")
-            }
-            if (libvlc.exists()) {
-                libvlc.copyTo(tempLibvlc, overwrite = true)
-                println("  Copied libvlc.dll to: ${tempLibvlc.absolutePath}")
-            }
-
-            // Add temp dir to library path
-            System.setProperty("java.library.path", tempDir.absolutePath)
-            println("  Updated java.library.path to: ${tempDir.absolutePath}")
-
-        } catch (e: Exception) {
-            println("  Warning: Could not copy DLLs to temp: ${e.message}")
-        }
-
-        // Try NativeDiscovery to verify VLC can be found
+        // Run discovery for diagnostics only; factory init still gets a fallback path.
         println("\nTrying NativeDiscovery...")
         val discovered = try {
             NativeDiscovery().discover()
@@ -859,12 +843,8 @@ fun loadVlcNativeLibraries(vlcInfo: VlcInfo): Boolean {
 
         println("  Discovery result: $discovered")
 
-        if (discovered) {
-            println("✓ VLC libraries found and can be loaded")
-        } else {
-            println("⚠ NativeDiscovery failed, but will try anyway...")
-        }
-
+        if (discovered) println("✓ VLC libraries found and can be loaded")
+        else println("⚠ NativeDiscovery failed, continuing with explicit VLC args")
         return true
 
     } catch (e: Exception) {
@@ -872,6 +852,15 @@ fun loadVlcNativeLibraries(vlcInfo: VlcInfo): Boolean {
         e.printStackTrace()
         return false
     }
+}
+
+private fun normalizeVlcPath(path: String): String {
+    val trimmed = path.trim().removeSurrounding("\"")
+    val file = java.io.File(trimmed)
+    if (file.isFile) {
+        return file.parent ?: trimmed
+    }
+    return trimmed
 }
 
 // Find VLC plugin path - returns null if not found (deprecated, use findVlcPath instead)
