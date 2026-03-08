@@ -1,7 +1,9 @@
 package com.void.desktop.ui.screen
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,25 +16,34 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.SwingPanel
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ImageInfo
 import uk.co.caprica.vlcj.factory.discovery.NativeDiscovery
 import uk.co.caprica.vlcj.player.base.MediaPlayer as VlcMediaPlayer
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
-import uk.co.caprica.vlcj.player.component.EmbeddedMediaPlayerComponent
+import uk.co.caprica.vlcj.player.component.CallbackMediaPlayerComponent
+import uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormatCallback
+import uk.co.caprica.vlcj.player.embedded.videosurface.callback.RenderCallbackAdapter
+import uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32BufferFormat
+import java.nio.ByteBuffer
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  VideoPlayerScreen
+//  VideoPlayerScreen — Callback-based rendering (no SwingPanel / HWND)
 //
-//  Uses EmbeddedMediaPlayerComponent — the vlcj high-level API.
-//  This JPanel subclass manages the native Canvas/HWND internally and
-//  properly embeds in the Compose window on Windows via SwingPanel.
+//  Uses CallbackMediaPlayerComponent with a RenderCallbackAdapter so VLC
+//  delivers every decoded frame as an int[] of BGRA pixels.  We blit that
+//  into a Skia Bitmap and expose it as a Compose ImageBitmap, which is
+//  then drawn by a regular Compose Image() composable.
+//  No native window / HWND embedding → works reliably on Windows CMP.
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -45,8 +56,13 @@ fun VideoPlayerScreen(
 ) {
     var vlcState by remember { mutableStateOf<VlcState>(VlcState.Loading) }
 
-    // The high-level component — is a JPanel, used directly in SwingPanel
-    var playerComponent by remember { mutableStateOf<EmbeddedMediaPlayerComponent?>(null) }
+    // Current decoded frame — updated from VLC callback thread, read by Compose
+    var currentFrame by remember { mutableStateOf<ImageBitmap?>(null) }
+    var frameWidth  by remember { mutableStateOf(1920) }
+    var frameHeight by remember { mutableStateOf(1080) }
+
+    // Player reference (callback component — not a JPanel, no HWND)
+    var callbackComponent by remember { mutableStateOf<CallbackMediaPlayerComponent?>(null) }
 
     var isPlaying   by remember { mutableStateOf(false) }
     var isMuted     by remember { mutableStateOf(false) }
@@ -69,51 +85,96 @@ fun VideoPlayerScreen(
     }
 
     // ── Initialise VLC ────────────────────────────────────────────────────────
-    // Must run on a background coroutine (NativeDiscovery can block briefly).
     LaunchedEffect(Unit) {
         try {
             val found = NativeDiscovery().discover()
             if (!found) { vlcState = VlcState.NotFound; return@LaunchedEffect }
 
-            // EmbeddedMediaPlayerComponent creates its own factory, Canvas,
-            // and video surface.  It is the official vlcj way to embed video
-            // in a Swing container and works correctly on Windows.
-            val component = EmbeddedMediaPlayerComponent()
-            val player    = component.mediaPlayer()
+            // Reusable Skia bitmap (resized when VLC reports a new buffer format)
+            val skiaBitmap = Bitmap()
 
-            // Register scaling listener BEFORE play() is called.
-            // videoOutput fires on the VLC thread when the vout is ready —
-            // the ONLY reliable moment to call setScale.
-            player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
-
-                override fun videoOutput(mp: VlcMediaPlayer, newCount: Int) {
-                    if (newCount > 0) {
-                        mp.video().setScale(0f)          // auto-fit, no 1:1 crop
-                        mp.video().setAspectRatio(null)  // keep native AR
-                    }
+            // ── Buffer format callback — called when VLC knows video dimensions ──
+            val bufferFormatCb = object : BufferFormatCallback {
+                override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): RV32BufferFormat {
+                    frameWidth  = sourceWidth
+                    frameHeight = sourceHeight
+                    // Allocate Skia bitmap to match
+                    skiaBitmap.allocPixels(
+                        ImageInfo.makeN32(sourceWidth, sourceHeight, ColorAlphaType.OPAQUE)
+                    )
+                    return RV32BufferFormat(sourceWidth, sourceHeight)
                 }
+                override fun allocatedBuffers(buffers: Array<ByteBuffer>) { /* no-op */ }
+            }
 
-                // playing() is a safety-net in case the canvas was resized
-                // between videoOutput and actual frame rendering.
+            // Reusable byte buffer for pixel transfer (avoids allocation per frame)
+            var pixelBytes = ByteArray(0)
+
+            // ── Render callback — called for every decoded frame ───────────────
+            val renderCb = object : RenderCallbackAdapter() {
+                override fun onDisplay(mp: VlcMediaPlayer, rgbBuffer: IntArray) {
+                    val w = frameWidth
+                    val h = frameHeight
+                    if (w <= 0 || h <= 0 || rgbBuffer.size < w * h) return
+
+                    val needed = w * h * 4
+                    if (pixelBytes.size != needed) pixelBytes = ByteArray(needed)
+
+                    // Convert IntArray (BGRA ints from RV32) → ByteArray for Skia
+                    val bb = java.nio.ByteBuffer.wrap(pixelBytes)
+                    bb.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    val ib = bb.asIntBuffer()
+                    ib.put(rgbBuffer, 0, w * h)
+
+                    skiaBitmap.installPixels(skiaBitmap.imageInfo, pixelBytes, w * 4)
+                    currentFrame = skiaBitmap.asComposeImageBitmap()
+                }
+            }
+
+            // CallbackMediaPlayerComponent — pure software path, no HWND
+            val component = CallbackMediaPlayerComponent(
+                /* mediaPlayerFactory  */ null,
+                /* fullScreenStrategy  */ null,
+                /* inputEvents         */ null,
+                /* lockBuffers         */ true,
+                /* renderCallback      */ renderCb,
+                /* bufferFormatCallback*/ bufferFormatCb,
+                /* videoSurfaceComponent */ null
+            )
+
+            val player = component.mediaPlayer()
+
+            // Track play/stop events
+            player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
                 override fun playing(mp: VlcMediaPlayer) {
-                    mp.video().setScale(0f)
+                    isPlaying = true
+                }
+                override fun paused(mp: VlcMediaPlayer) {
+                    isPlaying = false
+                }
+                override fun stopped(mp: VlcMediaPlayer) {
+                    isPlaying = false
+                }
+                override fun finished(mp: VlcMediaPlayer) {
+                    isPlaying = false
+                }
+                override fun error(mp: VlcMediaPlayer) {
+                    isPlaying = false
                 }
             })
 
-            playerComponent = component
-            vlcState        = VlcState.Ready
+            callbackComponent = component
+            vlcState          = VlcState.Ready
         } catch (e: Exception) {
             vlcState = VlcState.NotFound
         }
     }
 
-    // ── Start playback once the component is ready ────────────────────────────
+    // ── Start playback once ready ─────────────────────────────────────────────
     LaunchedEffect(vlcState, streamUrl) {
         if (vlcState == VlcState.Ready) {
-            val player = playerComponent?.mediaPlayer() ?: return@LaunchedEffect
-            // Small delay so SwingPanel has time to attach the component to the
-            // real Compose/Skia window before VLC tries to use its HWND.
-            delay(150)
+            val player = callbackComponent?.mediaPlayer() ?: return@LaunchedEffect
+            delay(100)
             player.media().play(streamUrl)
             isPlaying = true
             resetHideTimer()
@@ -124,7 +185,7 @@ fun VideoPlayerScreen(
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             delay(500)
-            playerComponent?.mediaPlayer()?.let { p ->
+            callbackComponent?.mediaPlayer()?.let { p ->
                 position = p.status().position()
                 val len = p.status().length()
                 if (len > 0) duration = len
@@ -132,20 +193,12 @@ fun VideoPlayerScreen(
         }
     }
 
-    // ── Stretch toggle ────────────────────────────────────────────────────────
-    LaunchedEffect(isStretched) {
-        val p = playerComponent?.mediaPlayer() ?: return@LaunchedEffect
-        if (isStretched) p.video().setAspectRatio("16:9")
-        else             p.video().setAspectRatio(null)
-        p.video().setScale(0f)
-    }
-
     // ── Cleanup ───────────────────────────────────────────────────────────────
     DisposableEffect(Unit) {
         onDispose {
             try {
-                playerComponent?.mediaPlayer()?.controls()?.stop()
-                playerComponent?.release()
+                callbackComponent?.mediaPlayer()?.controls()?.stop()
+                callbackComponent?.release()
             } catch (_: Exception) {}
         }
     }
@@ -155,11 +208,13 @@ fun VideoPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTapGestures { resetHideTimer() }
+            }
     ) {
 
         when (vlcState) {
 
-            // ── Loading ───────────────────────────────────────────────────────
             VlcState.Loading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -170,18 +225,34 @@ fun VideoPlayerScreen(
                 }
             }
 
-            // ── VLC not found ─────────────────────────────────────────────────
             VlcState.NotFound -> VlcNotFoundContent(streamUrl, onBack)
 
-            // ── Video panel (SwingPanel wraps EmbeddedMediaPlayerComponent) ───
             VlcState.Ready -> {
-                val component = playerComponent
-                if (component != null) {
-                    // EmbeddedMediaPlayerComponent IS a JPanel — pass it directly.
-                    // fillMaxSize() makes it fill the entire Box.
-                    SwingPanel(
-                        modifier = Modifier.fillMaxSize(),
-                        factory  = { component }
+                val frame = currentFrame
+                if (frame == null) {
+                    // Waiting for first frame
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color.White)
+                    }
+                } else {
+                    // ── Render decoded frame as Compose Image ─────────────────
+                    Image(
+                        bitmap = frame,
+                        contentDescription = null,
+                        contentScale = if (isStretched) ContentScale.FillBounds else ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectTapGestures {
+                                    val p = callbackComponent?.mediaPlayer() ?: return@detectTapGestures
+                                    if (p.status().isPlaying) {
+                                        p.controls().pause(); isPlaying = false
+                                    } else {
+                                        p.controls().play(); isPlaying = true
+                                    }
+                                    resetHideTimer()
+                                }
+                            }
                     )
                 }
             }
@@ -221,7 +292,7 @@ fun VideoPlayerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        Brush.verticalGradient(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
                             colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.92f))
                         )
                     )
@@ -260,7 +331,7 @@ fun VideoPlayerScreen(
                     value         = position,
                     onValueChange = { pos ->
                         position = pos
-                        playerComponent?.mediaPlayer()?.controls()?.setPosition(pos)
+                        callbackComponent?.mediaPlayer()?.controls()?.setPosition(pos)
                         resetHideTimer()
                     },
                     colors = SliderDefaults.colors(
@@ -278,13 +349,13 @@ fun VideoPlayerScreen(
                 ) {
                     // Rewind 10 s
                     Btn(onClick = {
-                        playerComponent?.mediaPlayer()?.controls()?.skipTime(-10_000)
+                        callbackComponent?.mediaPlayer()?.controls()?.skipTime(-10_000)
                         resetHideTimer()
                     }) { Icon(Icons.Default.Replay10, "–10 s", tint = Color.White) }
 
                     // Play / Pause
                     Btn(onClick = {
-                        val p = playerComponent?.mediaPlayer() ?: return@Btn
+                        val p = callbackComponent?.mediaPlayer() ?: return@Btn
                         if (p.status().isPlaying) { p.controls().pause(); isPlaying = false }
                         else                      { p.controls().play();  isPlaying = true  }
                         resetHideTimer()
@@ -299,7 +370,7 @@ fun VideoPlayerScreen(
 
                     // Forward 10 s
                     Btn(onClick = {
-                        playerComponent?.mediaPlayer()?.controls()?.skipTime(10_000)
+                        callbackComponent?.mediaPlayer()?.controls()?.skipTime(10_000)
                         resetHideTimer()
                     }) { Icon(Icons.Default.Forward10, "+10 s", tint = Color.White) }
 
@@ -316,7 +387,7 @@ fun VideoPlayerScreen(
 
                     // Mute
                     Btn(onClick = {
-                        playerComponent?.mediaPlayer()?.audio()?.mute()
+                        callbackComponent?.mediaPlayer()?.audio()?.mute()
                         isMuted = !isMuted
                         resetHideTimer()
                     }) {
@@ -330,7 +401,7 @@ fun VideoPlayerScreen(
 
                     // Stop & back
                     Btn(onClick = {
-                        playerComponent?.mediaPlayer()?.controls()?.stop()
+                        callbackComponent?.mediaPlayer()?.controls()?.stop()
                         isPlaying = false
                         onBack()
                     }) { Icon(Icons.Default.Stop, "Stop", tint = Color.White) }
