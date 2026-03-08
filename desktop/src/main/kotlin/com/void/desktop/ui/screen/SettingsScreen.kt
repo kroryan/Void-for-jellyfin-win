@@ -1,33 +1,54 @@
 package com.void.desktop.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
-import com.void.desktop.data.api.ApiClient
 import com.void.desktop.data.storage.AppPreferences
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     prefs: AppPreferences,
-    onLogout: () -> Unit,
-    onSavePreferences: (AppPreferences) -> Unit = {}
+    onLogout: () -> Unit
 ) {
-    var customVlcPath by remember { mutableStateOf(prefs.customVlcPath) }
-    var showVlcPathDialog by remember { mutableStateOf(false) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
+
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Sign out") },
+            text = { Text("Are you sure you want to sign out of ${prefs.serverUrl}?") },
+            confirmButton = {
+                Button(
+                    onClick = { showLogoutDialog = false; onLogout() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Sign out")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -44,301 +65,162 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // User info card
+            // ── User card ─────────────────────────────────────────────────────
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Avatar
-                    val avatarUrl = if (prefs.userId.isNotEmpty()) {
-                        ApiClient.buildImageUrl(
-                            serverUrl = prefs.serverUrl,
-                            itemId = prefs.userId,
-                            imageType = "Primary",
-                            tag = "",
-                            accessToken = prefs.accessToken,
-                            maxWidth = 200
+                    // Avatar circle
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = prefs.userName.take(1).uppercase(),
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary
                         )
-                    } else null
-
-                    if (avatarUrl != null) {
-                        AsyncImage(
-                            model = avatarUrl,
-                            contentDescription = "User avatar",
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = (prefs.userName.firstOrNull()?.toString() ?: "?").uppercase(),
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
                     }
-
-                    // User details
                     Column {
                         Text(
-                            text = prefs.userName.ifEmpty { "User" },
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = prefs.serverUrl,
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = prefs.userName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    }
-                }
-            }
-
-            // Server info section
-            Text(
-                text = "Server",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
-            SettingsRow(
-                icon = Icons.Default.Storage,
-                title = "Server URL",
-                subtitle = prefs.serverUrl
-            )
-
-            SettingsRow(
-                icon = Icons.Default.Security,
-                title = "Server ID",
-                subtitle = prefs.serverId.ifEmpty { "Unknown" }
-            )
-
-            SettingsRow(
-                icon = Icons.Default.PhoneAndroid,
-                title = "Device ID",
-                subtitle = prefs.deviceId
-            )
-
-            Divider(Modifier.padding(vertical = 8.dp))
-
-            // Account section
-            Text(
-                text = "Account",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
-            SettingsRow(
-                icon = Icons.Default.Person,
-                title = "User ID",
-                subtitle = prefs.userId
-            )
-
-            SettingsRow(
-                icon = Icons.Default.Email,
-                title = "Username",
-                subtitle = prefs.userName
-            )
-
-            Divider(Modifier.padding(vertical = 8.dp))
-
-            // Playback section
-            Text(
-                text = "Playback",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.PlayCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                        Text(
+                            text = "Jellyfin User",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "VLC Path",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = if (customVlcPath.isEmpty()) {
-                                    "Auto-detect (Recommended)"
-                                } else {
-                                    customVlcPath
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2
-                            )
-                        }
-                        Button(onClick = { showVlcPathDialog = true }) {
-                            Text("Change")
-                        }
                     }
                 }
             }
 
-            Divider(Modifier.padding(vertical = 8.dp))
+            // ── Server info ───────────────────────────────────────────────────
+            SettingsSection(title = "Server") {
+                SettingsRow(
+                    icon = Icons.Default.Dns,
+                    label = "Server URL",
+                    value = prefs.serverUrl
+                )
+                SettingsRow(
+                    icon = Icons.Default.Fingerprint,
+                    label = "Server ID",
+                    value = prefs.serverId.take(8) + "…"
+                )
+                SettingsRow(
+                    icon = Icons.Default.DeviceHub,
+                    label = "Device ID",
+                    value = prefs.deviceId.take(8) + "…"
+                )
+            }
 
-            // Actions section
-            Text(
-                text = "Actions",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            // ── App info ──────────────────────────────────────────────────────
+            SettingsSection(title = "About") {
+                SettingsRow(
+                    icon = Icons.Default.Info,
+                    label = "App Version",
+                    value = "0.2.6"
+                )
+                SettingsRow(
+                    icon = Icons.Default.Code,
+                    label = "Platform",
+                    value = "Windows Desktop"
+                )
+            }
 
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+            // ── Sign out ──────────────────────────────────────────────────────
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { showLogoutDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onLogout)
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Logout,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                    Text(
-                        text = "Sign Out",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Sign out")
             }
 
             Spacer(Modifier.height(16.dp))
-
-            // Version info
-            Text(
-                text = "Void for Jellyfin v0.2.6",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
         }
     }
+}
 
-    // VLC Path Dialog
-    if (showVlcPathDialog) {
-        var vlcPathInput by remember { mutableStateOf(customVlcPath) }
-
-        AlertDialog(
-            onDismissRequest = { showVlcPathDialog = false },
-            title = { Text("VLC Installation Path") },
-            text = {
-                Column {
-                    Text(
-                        "Enter the path to your VLC installation directory:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    OutlinedTextField(
-                        value = vlcPathInput,
-                        onValueChange = { vlcPathInput = it },
-                        placeholder = { Text("C:\\Program Files\\VideoLAN\\VLC") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Leave empty to use auto-detection",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        customVlcPath = vlcPathInput.trim()
-                        onSavePreferences(prefs.copy(customVlcPath = customVlcPath))
-                        showVlcPathDialog = false
-                    }
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showVlcPathDialog = false }) {
-                    Text("Cancel")
-                }
-            }
+@Composable
+private fun SettingsSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column {
+        Text(
+            text = title.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(bottom = 8.dp, start = 4.dp)
         )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(modifier = Modifier.padding(4.dp)) {
+                content()
+            }
+        }
     }
 }
 
 @Composable
 private fun SettingsRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    subtitle: String
+    icon: ImageVector,
+    label: String,
+    value: String
 ) {
-    Card(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.size(20.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
-            Column {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

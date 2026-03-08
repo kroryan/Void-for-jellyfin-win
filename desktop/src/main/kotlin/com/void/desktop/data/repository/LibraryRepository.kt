@@ -39,6 +39,27 @@ class LibraryRepository(private val prefs: AppPreferences) {
         Result.Error("Failed to load items: ${e.message}", e)
     }
 
+    suspend fun searchItems(query: String): Result<List<BaseItemDto>> = try {
+        val response = api.searchItems(
+            userId = prefs.userId,
+            auth = auth,
+            searchTerm = query
+        )
+        Result.Success(response.items)
+    } catch (e: Exception) {
+        Result.Error("Search failed: ${e.message}", e)
+    }
+
+    suspend fun getFavoriteItems(): Result<List<BaseItemDto>> = try {
+        val response = api.getFavoriteItems(
+            userId = prefs.userId,
+            auth = auth
+        )
+        Result.Success(response.items)
+    } catch (e: Exception) {
+        Result.Error("Failed to load favorites: ${e.message}", e)
+    }
+
     suspend fun getResumeItems(): Result<List<BaseItemDto>> = try {
         val response = api.getResumeItems(prefs.userId, auth)
         Result.Success(response.items)
@@ -133,49 +154,5 @@ class LibraryRepository(private val prefs: AppPreferences) {
         Result.Success(response.items)
     } catch (e: Exception) {
         Result.Error("Failed to load episodes: ${e.message}", e)
-    }
-
-    suspend fun searchItems(
-        searchTerm: String,
-        startIndex: Int = 0,
-        limit: Int = 50
-    ): Result<List<BaseItemDto>> = try {
-        val response = api.searchItems(
-            userId = prefs.userId,
-            auth = auth,
-            searchTerm = searchTerm,
-            startIndex = startIndex,
-            limit = limit
-        )
-        Result.Success(response.items)
-    } catch (e: Exception) {
-        Result.Error("Failed to search: ${e.message}", e)
-    }
-
-    suspend fun getFavoriteItems(
-        startIndex: Int = 0,
-        limit: Int = 50
-    ): Result<List<BaseItemDto>> = try {
-        val response = api.getFavoriteItems(
-            userId = prefs.userId,
-            auth = auth,
-            startIndex = startIndex,
-            limit = limit
-        )
-        Result.Success(response.items)
-    } catch (e: Exception) {
-        Result.Error("Failed to load favorites: ${e.message}", e)
-    }
-
-    suspend fun getTotalItemCount(libraryId: String? = null): Result<Int> = try {
-        val response = api.getItems(
-            userId = prefs.userId,
-            auth = auth,
-            parentId = libraryId,
-            limit = 0
-        )
-        Result.Success(response.totalRecordCount)
-    } catch (e: Exception) {
-        Result.Error("Failed to get count: ${e.message}", e)
     }
 }

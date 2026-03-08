@@ -6,245 +6,225 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import com.void.desktop.data.dto.BaseItemDto
 import com.void.desktop.data.storage.AppPreferences
 import com.void.desktop.data.storage.PreferencesStorage
 import com.void.desktop.ui.screen.*
-import com.void.desktop.ui.theme.VoidTheme
 
-private enum class NavDestination {
-    HOME, SEARCH, FAVORITES, SETTINGS
+// ── Top-level app navigation ─────────────────────────────────────────────────
+
+private sealed class AppScreen {
+    object ServerSetup : AppScreen()
+    data class Login(val serverUrl: String) : AppScreen()
+    data class Main(val prefs: AppPreferences) : AppScreen()
+    data class Player(val streamUrl: String, val title: String, val prefs: AppPreferences) : AppScreen()
 }
 
-private sealed class Screen {
-    object ServerSetup : Screen()
-    data class Login(val serverUrl: String) : Screen()
-    data class Home(val prefs: AppPreferences) : Screen()
-    data class Search(val prefs: AppPreferences) : Screen()
-    data class Favorites(val prefs: AppPreferences) : Screen()
-    data class Settings(val prefs: AppPreferences) : Screen()
-    data class Library(val library: BaseItemDto, val prefs: AppPreferences) : Screen()
-    data class MediaDetail(val itemId: String, val prefs: AppPreferences) : Screen()
-    data class SeriesDetail(val seriesId: String, val prefs: AppPreferences) : Screen()
-    data class SeasonDetail(val seasonId: String, val seriesName: String, val prefs: AppPreferences) : Screen()
-    data class Player(val streamUrl: String, val title: String, val prefs: AppPreferences) : Screen()
+// ── Pages within the main authenticated area ──────────────────────────────────
+
+sealed class TabPage {
+    object Home     : TabPage()
+    object Search   : TabPage()
+    object Favorites : TabPage()
+    object Settings : TabPage()
+    data class Library(val library: BaseItemDto) : TabPage()
+    data class MediaDetail(val itemId: String) : TabPage()
 }
+
+// ── Navigation rail tab descriptors ──────────────────────────────────────────
+
+private data class NavTab(
+    val label: String,
+    val icon: ImageVector,
+    val selectedIcon: ImageVector = icon
+)
+
+private val NAV_TABS = listOf(
+    NavTab("Home",      Icons.Default.Home,           Icons.Default.Home),
+    NavTab("Search",    Icons.Default.Search,          Icons.Default.Search),
+    NavTab("Favorites", Icons.Default.FavoriteBorder,  Icons.Default.Favorite),
+    NavTab("Settings",  Icons.Default.Settings,         Icons.Default.Settings)
+)
+
+// ── App root ─────────────────────────────────────────────────────────────────
 
 @Composable
 fun App(
     isFullscreen: Boolean = false,
     onFullscreenToggle: () -> Unit = {}
 ) {
-    VoidTheme {
-        val initialPrefs = remember { PreferencesStorage.load() }
-        val initialScreen: Screen = remember {
-            when {
-                initialPrefs.accessToken.isNotBlank() && initialPrefs.serverUrl.isNotBlank() ->
-                    Screen.Home(initialPrefs)
-                initialPrefs.serverUrl.isNotBlank() ->
-                    Screen.Login(initialPrefs.serverUrl)
-                else ->
-                    Screen.ServerSetup
+    // Scale the UI by 28% so everything appears larger on desktop monitors
+    val baseDensity = LocalDensity.current
+    CompositionLocalProvider(
+        LocalDensity provides Density(
+            density = baseDensity.density * 1.28f,
+            fontScale = baseDensity.fontScale
+        )
+    ) {
+
+    val initialPrefs = remember { PreferencesStorage.load() }
+    val initialScreen: AppScreen = remember {
+        when {
+            initialPrefs.accessToken.isNotBlank() && initialPrefs.serverUrl.isNotBlank() ->
+                AppScreen.Main(initialPrefs)
+            initialPrefs.serverUrl.isNotBlank() ->
+                AppScreen.Login(initialPrefs.serverUrl)
+            else ->
+                AppScreen.ServerSetup
+        }
+    }
+
+    val appStack = remember { mutableStateListOf<AppScreen>(initialScreen) }
+    val currentAppScreen = appStack.last()
+
+    fun pushApp(screen: AppScreen) = appStack.add(screen)
+    fun popApp() { if (appStack.size > 1) appStack.removeLastOrNull() }
+
+    when (val screen = currentAppScreen) {
+        is AppScreen.ServerSetup -> ServerSetupScreen(
+            onServerConnected = { url -> pushApp(AppScreen.Login(url)) }
+        )
+
+        is AppScreen.Login -> LoginScreen(
+            serverUrl = screen.serverUrl,
+            deviceId = PreferencesStorage.load().deviceId,
+            onLoginSuccess = { prefs ->
+                appStack.clear()
+                appStack.add(AppScreen.Main(prefs))
+            },
+            onChangeServer = { popApp() }
+        )
+
+        is AppScreen.Main -> MainScreen(
+            prefs = screen.prefs,
+            isFullscreen = isFullscreen,
+            onFullscreenToggle = onFullscreenToggle,
+            onLogout = {
+                PreferencesStorage.clear()
+                appStack.clear()
+                appStack.add(AppScreen.ServerSetup)
+            },
+            onNavigateToPlayer = { url, title ->
+                pushApp(AppScreen.Player(url, title, screen.prefs))
             }
-        }
+        )
 
-        val navStack = remember { mutableStateListOf<Screen>(initialScreen) }
-        val currentScreen = navStack.last()
-        var currentDestination by remember { mutableStateOf(NavDestination.HOME) }
+        is AppScreen.Player -> VideoPlayerScreen(
+            streamUrl = screen.streamUrl,
+            title = screen.title,
+            onBack = { popApp() },
+            onFullscreenToggle = onFullscreenToggle,
+            isFullscreen = isFullscreen
+        )
+    }
 
-        fun push(screen: Screen) = navStack.add(screen)
-        fun pop() { if (navStack.size > 1) navStack.removeLastOrNull() }
+    } // end CompositionLocalProvider
+}
 
-        fun navigateToDestination(dest: NavDestination, prefs: AppPreferences) {
-            currentDestination = dest
-            navStack.clear()
-            when (dest) {
-                NavDestination.HOME -> push(Screen.Home(prefs))
-                NavDestination.SEARCH -> push(Screen.Search(prefs))
-                NavDestination.FAVORITES -> push(Screen.Favorites(prefs))
-                NavDestination.SETTINGS -> push(Screen.Settings(prefs))
-            }
-        }
+// ── Main authenticated layout with navigation rail ────────────────────────────
 
-        fun getCurrentPrefs(): AppPreferences = when (val screen = currentScreen) {
-            is Screen.Home -> screen.prefs
-            is Screen.Search -> screen.prefs
-            is Screen.Favorites -> screen.prefs
-            is Screen.Settings -> screen.prefs
-            is Screen.Library -> screen.prefs
-            is Screen.MediaDetail -> screen.prefs
-            is Screen.SeriesDetail -> screen.prefs
-            is Screen.SeasonDetail -> screen.prefs
-            is Screen.Player -> screen.prefs
-            is Screen.ServerSetup, is Screen.Login -> initialPrefs
-        }
+@Composable
+private fun MainScreen(
+    prefs: AppPreferences,
+    isFullscreen: Boolean,
+    onFullscreenToggle: () -> Unit,
+    onLogout: () -> Unit,
+    onNavigateToPlayer: (url: String, title: String) -> Unit
+) {
+    var selectedTabIndex by remember { mutableStateOf(0) }
 
-        val prefs = getCurrentPrefs()
-        val isAuthenticated = prefs.accessToken.isNotBlank() && prefs.serverUrl.isNotBlank()
+    // Each tab has its own independent page stack
+    val tabStacks: List<MutableList<TabPage>> = remember {
+        listOf(
+            mutableStateListOf(TabPage.Home),
+            mutableStateListOf(TabPage.Search),
+            mutableStateListOf(TabPage.Favorites),
+            mutableStateListOf(TabPage.Settings)
+        )
+    }
 
-        if (!isAuthenticated || currentScreen is Screen.Player) {
-            // Auth screens or fullscreen player - no nav rail
-            when (val screen = currentScreen) {
-                is Screen.ServerSetup -> ServerSetupScreen(
-                    onServerConnected = { url -> push(Screen.Login(url)) }
-                )
+    val currentStack = tabStacks[selectedTabIndex]
+    val currentPage = currentStack.last()
 
-                is Screen.Login -> LoginScreen(
-                    serverUrl = screen.serverUrl,
-                    deviceId = PreferencesStorage.load().deviceId,
-                    onLoginSuccess = { newPrefs ->
-                        navStack.clear()
-                        navStack.add(Screen.Home(newPrefs))
+    fun pushPage(page: TabPage) = currentStack.add(page)
+    fun popPage() { if (currentStack.size > 1) currentStack.removeLastOrNull() }
+
+    Row(modifier = Modifier.fillMaxSize()) {
+        // ── Navigation Rail ───────────────────────────────────────────────────
+        NavigationRail(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ) {
+            Spacer(Modifier.weight(1f))
+            NAV_TABS.forEachIndexed { index, tab ->
+                NavigationRailItem(
+                    icon = {
+                        Icon(
+                            imageVector = if (selectedTabIndex == index) tab.selectedIcon else tab.icon,
+                            contentDescription = tab.label
+                        )
                     },
-                    onChangeServer = { pop() }
-                )
-
-                is Screen.Player -> VideoPlayerScreen(
-                    streamUrl = screen.streamUrl,
-                    title = screen.title,
-                    onBack = { pop() },
-                    onFullscreenToggle = onFullscreenToggle,
-                    isFullscreen = isFullscreen,
-                    customVlcPath = screen.prefs.customVlcPath
-                )
-
-                else -> {}
-            }
-        } else {
-            // Authenticated screens - show nav rail
-            Row(Modifier.fillMaxSize()) {
-                // Navigation Rail
-                NavigationRail(
-                    modifier = Modifier.fillMaxHeight(),
-                    containerColor = MaterialTheme.colorScheme.surface
-                ) {
-                    NavigationRailItem(
-                        selected = currentDestination == NavDestination.HOME,
-                        onClick = { navigateToDestination(NavDestination.HOME, prefs) },
-                        icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                        label = { Text("Home") }
-                    )
-                    NavigationRailItem(
-                        selected = currentDestination == NavDestination.SEARCH,
-                        onClick = { navigateToDestination(NavDestination.SEARCH, prefs) },
-                        icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                        label = { Text("Search") }
-                    )
-                    NavigationRailItem(
-                        selected = currentDestination == NavDestination.FAVORITES,
-                        onClick = { navigateToDestination(NavDestination.FAVORITES, prefs) },
-                        icon = { Icon(Icons.Default.Favorite, contentDescription = "Favorites") },
-                        label = { Text("Favorites") }
-                    )
-                    NavigationRailItem(
-                        selected = currentDestination == NavDestination.SETTINGS,
-                        onClick = { navigateToDestination(NavDestination.SETTINGS, prefs) },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                        label = { Text("Settings") }
-                    )
-                }
-
-                // Content
-                Box(Modifier.weight(1f)) {
-                    when (val screen = currentScreen) {
-                        is Screen.Home -> HomeScreen(
-                            prefs = screen.prefs,
-                            onItemClick = { item ->
-                                currentDestination = NavDestination.HOME
-                                if (item.type == "Series") {
-                                    push(Screen.SeriesDetail(item.id, screen.prefs))
-                                } else {
-                                    push(Screen.MediaDetail(item.id, screen.prefs))
-                                }
-                            },
-                            onLibraryClick = { library -> push(Screen.Library(library, screen.prefs)) }
-                        )
-
-                        is Screen.Search -> SearchScreen(
-                            prefs = screen.prefs,
-                            onItemClick = { item ->
-                                if (item.type == "Series") {
-                                    push(Screen.SeriesDetail(item.id, screen.prefs))
-                                } else {
-                                    push(Screen.MediaDetail(item.id, screen.prefs))
-                                }
-                            }
-                        )
-
-                        is Screen.Favorites -> FavoritesScreen(
-                            prefs = screen.prefs,
-                            onItemClick = { item ->
-                                if (item.type == "Series") {
-                                    push(Screen.SeriesDetail(item.id, screen.prefs))
-                                } else {
-                                    push(Screen.MediaDetail(item.id, screen.prefs))
-                                }
-                            }
-                        )
-
-                        is Screen.Settings -> SettingsScreen(
-                            prefs = screen.prefs,
-                            onLogout = {
-                                PreferencesStorage.clear()
-                                navStack.clear()
-                                navStack.add(Screen.ServerSetup)
-                            },
-                            onSavePreferences = { newPrefs ->
-                                PreferencesStorage.save(newPrefs)
-                                // Update the current screen with new prefs
-                                navStack[navStack.size - 1] = Screen.Settings(newPrefs)
-                            }
-                        )
-
-                        is Screen.Library -> LibraryScreen(
-                            library = screen.library,
-                            prefs = screen.prefs,
-                            onItemClick = { item ->
-                                if (item.type == "Series") {
-                                    push(Screen.SeriesDetail(item.id, screen.prefs))
-                                } else {
-                                    push(Screen.MediaDetail(item.id, screen.prefs))
-                                }
-                            },
-                            onBack = { pop() }
-                        )
-
-                        is Screen.MediaDetail -> MediaDetailScreen(
-                            itemId = screen.itemId,
-                            prefs = screen.prefs,
-                            onPlay = { streamUrl, title -> push(Screen.Player(streamUrl, title, screen.prefs)) },
-                            onBack = { pop() }
-                        )
-
-                        is Screen.SeriesDetail -> SeriesDetailScreen(
-                            seriesId = screen.seriesId,
-                            prefs = screen.prefs,
-                            onSeasonClick = { seasonId, seasonName ->
-                                push(Screen.SeasonDetail(seasonId, seasonName, screen.prefs))
-                            },
-                            onEpisodeClick = { episodeId ->
-                                push(Screen.MediaDetail(episodeId, screen.prefs))
-                            },
-                            onBack = { pop() }
-                        )
-
-                        is Screen.SeasonDetail -> SeasonDetailScreen(
-                            seasonId = screen.seasonId,
-                            seriesName = screen.seriesName,
-                            prefs = screen.prefs,
-                            onItemClick = { item ->
-                                if (item.type == "Series") {
-                                    push(Screen.SeriesDetail(item.id, screen.prefs))
-                                } else {
-                                    push(Screen.MediaDetail(item.id, screen.prefs))
-                                }
-                            },
-                            onBack = { pop() }
-                        )
-
-                        is Screen.ServerSetup, is Screen.Login, is Screen.Player -> {}
+                    label = { Text(tab.label) },
+                    selected = selectedTabIndex == index,
+                    onClick = {
+                        if (selectedTabIndex == index) {
+                            // Tap current tab → pop to root
+                            while (currentStack.size > 1) currentStack.removeLastOrNull()
+                        } else {
+                            selectedTabIndex = index
+                        }
                     }
-                }
+                )
+            }
+            Spacer(Modifier.weight(1f))
+        }
+
+        // Thin divider between rail and content
+        HorizontalDivider(
+            modifier = Modifier.fillMaxHeight().width(androidx.compose.ui.unit.Dp.Hairline),
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+        )
+
+        // ── Content area ──────────────────────────────────────────────────────
+        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            when (val page = currentPage) {
+                is TabPage.Home -> HomeScreen(
+                    prefs = prefs,
+                    onItemClick    = { item    -> pushPage(TabPage.MediaDetail(item.id)) },
+                    onLibraryClick = { library -> pushPage(TabPage.Library(library)) }
+                )
+
+                is TabPage.Search -> SearchScreen(
+                    prefs = prefs,
+                    onItemClick = { item -> pushPage(TabPage.MediaDetail(item.id)) }
+                )
+
+                is TabPage.Favorites -> FavoritesScreen(
+                    prefs = prefs,
+                    onItemClick = { item -> pushPage(TabPage.MediaDetail(item.id)) }
+                )
+
+                is TabPage.Settings -> SettingsScreen(
+                    prefs = prefs,
+                    onLogout = onLogout
+                )
+
+                is TabPage.Library -> LibraryScreen(
+                    library = page.library,
+                    prefs = prefs,
+                    onItemClick = { item -> pushPage(TabPage.MediaDetail(item.id)) },
+                    onBack = { popPage() }
+                )
+
+                is TabPage.MediaDetail -> MediaDetailScreen(
+                    itemId = page.itemId,
+                    prefs = prefs,
+                    onPlay = { url, title -> onNavigateToPlayer(url, title) },
+                    onBack = { popPage() }
+                )
             }
         }
     }

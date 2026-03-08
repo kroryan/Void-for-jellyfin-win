@@ -3,19 +3,22 @@ package com.void.desktop.ui.screen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.void.desktop.data.api.ApiClient
 import com.void.desktop.data.dto.BaseItemDto
 import com.void.desktop.data.repository.LibraryRepository
 import com.void.desktop.data.repository.Result
 import com.void.desktop.data.storage.AppPreferences
 import com.void.desktop.ui.components.MediaCard
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -27,22 +30,31 @@ fun SearchScreen(
     val repository = remember { LibraryRepository(prefs) }
     val coroutineScope = rememberCoroutineScope()
 
-    var searchQuery by remember { mutableStateOf("") }
-    var searchResults by remember { mutableStateOf<List<BaseItemDto>>(emptyList()) }
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<BaseItemDto>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var debounceJob by remember { mutableStateOf<Job?>(null) }
+    var hasSearched by remember { mutableStateOf(false) }
 
-    fun performSearch(query: String) {
-        if (query.isBlank()) {
-            searchResults = emptyList()
+    fun search(term: String) {
+        debounceJob?.cancel()
+        if (term.isBlank()) {
+            results = emptyList()
+            hasSearched = false
             return
         }
-        coroutineScope.launch {
+        debounceJob = coroutineScope.launch {
+            delay(400)
             isSearching = true
             errorMessage = null
-            when (val result = repository.searchItems(query)) {
-                is Result.Success -> searchResults = result.data
-                is Result.Error -> errorMessage = result.message
+            hasSearched = true
+            when (val result = repository.searchItems(term)) {
+                is Result.Success -> results = result.data
+                is Result.Error   -> {
+                    errorMessage = result.message
+                    results = emptyList()
+                }
             }
             isSearching = false
         }
@@ -51,98 +63,108 @@ fun SearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Search") },
+                title = {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it; search(it) },
+                        placeholder = { Text("Search movies, shows…") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            if (query.isNotEmpty()) {
+                                IconButton(onClick = {
+                                    query = ""; results = emptyList(); hasSearched = false
+                                }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        )
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
                 )
             )
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Search bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = {
-                        searchQuery = it
-                        performSearch(it)
-                    },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Search movies, shows, episodes...") },
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
-                    },
-                    singleLine = true
-                )
-            }
-
-            // Results
             when {
                 isSearching -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 }
+
                 errorMessage != null -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
                     }
                 }
-                searchQuery.isBlank() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "Type to search...",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                searchResults.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "No results found",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                else -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(160.dp),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(searchResults.size) { index ->
-                            val item = searchResults[index]
-                            val imageUrl = getPrimaryImageUrl(item, prefs)
-                            MediaCard(
-                                item = item,
-                                imageUrl = imageUrl,
-                                onClick = { onItemClick(item) }
+
+                !hasSearched -> {
+                    // Initial state — prompt
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "Type to search your library",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+
+                results.isEmpty() -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "No results for \"$query\"",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    Column {
+                        Text(
+                            text = "${results.size} results for \"$query\"",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 160.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(results) { item ->
+                                MediaCard(
+                                    item = item,
+                                    imageUrl = getPrimaryImageUrl(item, prefs),
+                                    onClick = { onItemClick(item) }
+                                )
+                            }
                         }
                     }
                 }

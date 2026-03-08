@@ -5,8 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,8 +25,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     prefs: AppPreferences,
     onItemClick: (BaseItemDto) -> Unit,
-    onLibraryClick: (BaseItemDto) -> Unit,
-    onLogout: () -> Unit = {}
+    onLibraryClick: (BaseItemDto) -> Unit
 ) {
     val repository = remember { LibraryRepository(prefs) }
     val coroutineScope = rememberCoroutineScope()
@@ -45,15 +43,15 @@ fun HomeScreen(
             try {
                 when (val libs = repository.getLibraries()) {
                     is Result.Success -> libraries = libs.data
-                    is Result.Error -> errorMessage = libs.message
+                    is Result.Error   -> errorMessage = libs.message
                 }
                 when (val resume = repository.getResumeItems()) {
                     is Result.Success -> resumeItems = resume.data
-                    is Result.Error -> { /* optional section */ }
+                    is Result.Error   -> { /* optional */ }
                 }
                 when (val latest = repository.getLatestItems()) {
                     is Result.Success -> latestItems = latest.data
-                    is Result.Error -> { /* optional section */ }
+                    is Result.Error   -> { /* optional */ }
                 }
             } finally {
                 isLoading = false
@@ -66,13 +64,15 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Void") },
+                title = {
+                    Text(
+                        text = "Void for Jellyfin",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                },
                 actions = {
                     IconButton(onClick = { loadData() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                    }
-                    IconButton(onClick = onLogout) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -87,9 +87,14 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator()
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(12.dp))
+                        Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
+
             errorMessage != null -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
@@ -102,6 +107,7 @@ fun HomeScreen(
                     }
                 }
             }
+
             else -> {
                 Column(
                     modifier = Modifier
@@ -111,14 +117,14 @@ fun HomeScreen(
                 ) {
                     // Greeting
                     Text(
-                        text = "Welcome, ${prefs.userName}",
+                        text = "Welcome back, ${prefs.userName}",
                         style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     )
 
                     // Libraries
                     if (libraries.isNotEmpty()) {
-                        SectionHeader("Libraries")
+                        SectionHeader("Your Libraries")
                         Row(
                             modifier = Modifier
                                 .horizontalScroll(rememberScrollState())
@@ -158,10 +164,9 @@ fun HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             resumeItems.forEach { item ->
-                                val imageUrl = getPrimaryImageUrl(item, prefs)
                                 MediaCard(
                                     item = item,
-                                    imageUrl = imageUrl,
+                                    imageUrl = getPrimaryImageUrl(item, prefs),
                                     onClick = { onItemClick(item) }
                                 )
                             }
@@ -179,15 +184,27 @@ fun HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             latestItems.forEach { item ->
-                                val imageUrl = getPrimaryImageUrl(item, prefs)
                                 MediaCard(
                                     item = item,
-                                    imageUrl = imageUrl,
+                                    imageUrl = getPrimaryImageUrl(item, prefs),
                                     onClick = { onItemClick(item) }
                                 )
                             }
                         }
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(24.dp))
+                    }
+
+                    // Empty state
+                    if (libraries.isEmpty() && resumeItems.isEmpty() && latestItems.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No content found",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

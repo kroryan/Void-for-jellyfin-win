@@ -1,5 +1,6 @@
 package com.void.desktop.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -14,8 +15,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -29,13 +33,20 @@ fun CustomTitleBar(
     onMaximizeToggle: () -> Unit,
     onClose: () -> Unit
 ) {
+    val appIcon: ImageBitmap? = remember {
+        try {
+            object {}.javaClass.getResourceAsStream("/icon.png")?.use { stream ->
+                loadImageBitmap(stream)
+            }
+        } catch (_: Exception) { null }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(40.dp)
             .background(MaterialTheme.colorScheme.surface)
             .pointerInput(isMaximized) {
-                // Drag to move the window
                 detectDragGestures { change, dragAmount ->
                     change.consume()
                     if (!isMaximized && window != null) {
@@ -50,19 +61,29 @@ fun CustomTitleBar(
     ) {
         Spacer(Modifier.width(12.dp))
 
-        // App logo: circle with "V"
-        Box(
-            modifier = Modifier
-                .size(20.dp)
-                .background(MaterialTheme.colorScheme.primary, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "V",
-                color = MaterialTheme.colorScheme.onPrimary,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Black
+        // Real app icon or fallback
+        if (appIcon != null) {
+            Image(
+                bitmap = appIcon,
+                contentDescription = "Void",
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "V",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Black
+                )
+            }
         }
 
         Spacer(Modifier.width(8.dp))

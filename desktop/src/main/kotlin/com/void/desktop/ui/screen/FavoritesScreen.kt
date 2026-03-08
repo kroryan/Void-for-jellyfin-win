@@ -3,14 +3,15 @@ package com.void.desktop.ui.screen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.void.desktop.data.api.ApiClient
 import com.void.desktop.data.dto.BaseItemDto
 import com.void.desktop.data.repository.LibraryRepository
 import com.void.desktop.data.repository.Result
@@ -37,7 +38,7 @@ fun FavoritesScreen(
             errorMessage = null
             when (val result = repository.getFavoriteItems()) {
                 is Result.Success -> favorites = result.data
-                is Result.Error -> errorMessage = result.message
+                is Result.Error   -> errorMessage = result.message
             }
             isLoading = false
         }
@@ -51,7 +52,7 @@ fun FavoritesScreen(
                 title = { Text("Favorites") },
                 actions = {
                     IconButton(onClick = { loadFavorites() }) {
-                        Icon(Icons.Default.Favorite, contentDescription = "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -69,6 +70,7 @@ fun FavoritesScreen(
                     CircularProgressIndicator()
                 }
             }
+
             errorMessage != null -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
@@ -81,6 +83,7 @@ fun FavoritesScreen(
                     }
                 }
             }
+
             favorites.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
@@ -91,37 +94,36 @@ fun FavoritesScreen(
                             Icons.Default.Favorite,
                             contentDescription = null,
                             modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                         )
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(12.dp))
                         Text(
                             "No favorites yet",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            "Mark items as favorites to see them here",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            "Heart items in their detail page to add them here",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
                     }
                 }
             }
+
             else -> {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(160.dp),
-                    modifier = Modifier.fillMaxSize().padding(paddingValues),
+                    columns = GridCells.Adaptive(minSize = 160.dp),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize().padding(paddingValues)
                 ) {
-                    items(favorites.size) { index ->
-                        val item = favorites[index]
-                        val imageUrl = getPrimaryImageUrl(item, prefs)
+                    items(favorites) { item ->
                         MediaCard(
                             item = item,
-                            imageUrl = imageUrl,
+                            imageUrl = getPrimaryImageUrl(item, prefs),
                             onClick = { onItemClick(item) }
                         )
                     }

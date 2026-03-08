@@ -2,11 +2,12 @@ package com.void.desktop.ui.screen
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +21,8 @@ import com.void.desktop.data.storage.AppPreferences
 import com.void.desktop.ui.components.MediaCard
 import kotlinx.coroutines.launch
 
+private const val PAGE_SIZE = 50
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
@@ -30,61 +33,48 @@ fun LibraryScreen(
 ) {
     val repository = remember { LibraryRepository(prefs) }
     val coroutineScope = rememberCoroutineScope()
-    val gridState = rememberLazyGridState()
 
     var items by remember { mutableStateOf<List<BaseItemDto>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isLoadingMore by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var currentPage by remember { mutableStateOf(0) }
-    val pageSize = 50
-    var hasMoreItems by remember { mutableStateOf(true) }
+    var hasMore by remember { mutableStateOf(true) }
+    var startIndex by remember { mutableStateOf(0) }
 
-    fun loadItems(reset: Boolean = false) {
+    fun loadInitial() {
         coroutineScope.launch {
-            if (reset) {
-                currentPage = 0
-                items = emptyList()
-                hasMoreItems = true
-                isLoading = true
-            } else {
-                isLoadingMore = true
-            }
+            isLoading = true
             errorMessage = null
-
-            val startIndex = currentPage * pageSize
-
-            when (val result = repository.getLibraryItems(
-                libraryId = library.id,
-                startIndex = startIndex,
-                limit = pageSize
-            )) {
+            startIndex = 0
+            when (val result = repository.getLibraryItems(library.id, startIndex = 0, limit = PAGE_SIZE)) {
                 is Result.Success -> {
-                    if (reset) {
-                        items = result.data
-                    } else {
-                        items = items + result.data
-                    }
-                    hasMoreItems = result.data.size >= pageSize
-                    currentPage++
+                    items = result.data
+                    startIndex = result.data.size
+                    hasMore = result.data.size >= PAGE_SIZE
                 }
                 is Result.Error -> errorMessage = result.message
             }
-
             isLoading = false
+        }
+    }
+
+    fun loadMore() {
+        if (isLoadingMore || !hasMore) return
+        coroutineScope.launch {
+            isLoadingMore = true
+            when (val result = repository.getLibraryItems(library.id, startIndex = startIndex, limit = PAGE_SIZE)) {
+                is Result.Success -> {
+                    items = items + result.data
+                    startIndex += result.data.size
+                    hasMore = result.data.size >= PAGE_SIZE
+                }
+                is Result.Error -> errorMessage = result.message
+            }
             isLoadingMore = false
         }
     }
 
-    // Load more when reaching the end
-    LaunchedEffect(gridState.firstVisibleItemIndex) {
-        if (!isLoading && !isLoadingMore && hasMoreItems &&
-            gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index == items.size - 1) {
-            loadItems(reset = false)
-        }
-    }
-
-    LaunchedEffect(library.id) { loadItems(reset = true) }
+    LaunchedEffect(library.id) { loadInitial() }
 
     Scaffold(
         topBar = {
@@ -96,7 +86,15 @@ fun LibraryScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { loadItems(reset = true) }) {
+                    if (!isLoading) {
+                        Text(
+                            text = "${items.size} items",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                    }
+                    IconButton(onClick = { loadInitial() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 },
@@ -107,7 +105,7 @@ fun LibraryScreen(
         }
     ) { paddingValues ->
         when {
-            isLoading && items.isEmpty() -> {
+            isLoading -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
                     contentAlignment = Alignment.Center
@@ -115,7 +113,8 @@ fun LibraryScreen(
                     CircularProgressIndicator()
                 }
             }
-            errorMessage != null && items.isEmpty() -> {
+
+            errorMessage != null -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
                     contentAlignment = Alignment.Center
@@ -123,10 +122,11 @@ fun LibraryScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(8.dp))
-                        Button(onClick = { loadItems(reset = true) }) { Text("Retry") }
+                        Button(onClick = { loadInitial() }) { Text("Retry") }
                     }
                 }
             }
+
             items.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
@@ -135,9 +135,9 @@ fun LibraryScreen(
                     Text("No items found", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+
             else -> {
                 LazyVerticalGrid(
-                    state = gridState,
                     columns = GridCells.Adaptive(minSize = 160.dp),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -145,23 +145,53 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxSize().padding(paddingValues)
                 ) {
                     items(items) { item ->
-                        val imageUrl = getPrimaryImageUrl(item, prefs)
                         MediaCard(
                             item = item,
-                            imageUrl = imageUrl,
+                            imageUrl = getPrimaryImageUrl(item, prefs),
                             onClick = { onItemClick(item) }
                         )
                     }
 
-                    if (isLoadingMore) {
-                        item {
+                    // Footer: Load More button or end indicator
+                    if (hasMore || isLoadingMore) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(16.dp),
+                                    .padding(vertical = 16.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                CircularProgressIndicator()
+                                if (isLoadingMore) {
+                                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { loadMore() },
+                                        modifier = Modifier.width(200.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.KeyboardArrowDown,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Load More")
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "All ${items.size} items loaded",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
