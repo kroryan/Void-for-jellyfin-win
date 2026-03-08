@@ -22,18 +22,18 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import uk.co.caprica.vlcj.factory.MediaPlayerFactory
 import uk.co.caprica.vlcj.factory.discovery.NativeDiscovery
 import uk.co.caprica.vlcj.player.base.MediaPlayer as VlcMediaPlayer
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
-import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer
-import java.awt.BorderLayout
-import java.awt.Canvas
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseMotionAdapter
-import java.util.concurrent.atomic.AtomicBoolean
-import javax.swing.JPanel
-import javax.swing.SwingUtilities
+import uk.co.caprica.vlcj.player.component.EmbeddedMediaPlayerComponent
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  VideoPlayerScreen
+//
+//  Uses EmbeddedMediaPlayerComponent — the vlcj high-level API.
+//  This JPanel subclass manages the native Canvas/HWND internally and
+//  properly embeds in the Compose window on Windows via SwingPanel.
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun VideoPlayerScreen(
@@ -44,89 +44,87 @@ fun VideoPlayerScreen(
     isFullscreen: Boolean = false
 ) {
     var vlcState by remember { mutableStateOf<VlcState>(VlcState.Loading) }
-    var mediaPlayerFactory by remember { mutableStateOf<MediaPlayerFactory?>(null) }
-    var mediaPlayer by remember { mutableStateOf<EmbeddedMediaPlayer?>(null) }
-    var isPlaying by remember { mutableStateOf(false) }
-    var isMuted by remember { mutableStateOf(false) }
-    var position by remember { mutableStateOf(0f) }
-    var duration by remember { mutableStateOf(0L) }
 
-    // Stretch toggle — forces video to fill window at 16:9 regardless of native AR
+    // The high-level component — is a JPanel, used directly in SwingPanel
+    var playerComponent by remember { mutableStateOf<EmbeddedMediaPlayerComponent?>(null) }
+
+    var isPlaying   by remember { mutableStateOf(false) }
+    var isMuted     by remember { mutableStateOf(false) }
+    var position    by remember { mutableStateOf(0f) }
+    var duration    by remember { mutableStateOf(0L) }
     var isStretched by remember { mutableStateOf(false) }
 
-    // Controls visibility
+    // Controls auto-hide
     var showControls by remember { mutableStateOf(true) }
-    val coroutineScope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     var hideJob by remember { mutableStateOf<Job?>(null) }
 
     fun resetHideTimer() {
         showControls = true
         hideJob?.cancel()
-        hideJob = coroutineScope.launch {
+        hideJob = scope.launch {
             delay(3500)
             if (isPlaying) showControls = false
         }
     }
 
-    val onMouseActivity = rememberUpdatedState(::resetHideTimer)
-
-    // ── VLC initialisation ────────────────────────────────────────────────────
+    // ── Initialise VLC ────────────────────────────────────────────────────────
+    // Must run on a background coroutine (NativeDiscovery can block briefly).
     LaunchedEffect(Unit) {
         try {
             val found = NativeDiscovery().discover()
             if (!found) { vlcState = VlcState.NotFound; return@LaunchedEffect }
 
-            val factory = MediaPlayerFactory("--no-video-title-show", "--quiet")
-            val player  = factory.mediaPlayers().newEmbeddedMediaPlayer()
+            // EmbeddedMediaPlayerComponent creates its own factory, Canvas,
+            // and video surface.  It is the official vlcj way to embed video
+            // in a Swing container and works correctly on Windows.
+            val component = EmbeddedMediaPlayerComponent()
+            val player    = component.mediaPlayer()
 
-            // ── Register event listener BEFORE starting playback ─────────────
-            // videoOutput fires on the VLC internal thread when the vout is
-            // initialised.  That is the ONLY reliable moment to call setScale.
+            // Register scaling listener BEFORE play() is called.
+            // videoOutput fires on the VLC thread when the vout is ready —
+            // the ONLY reliable moment to call setScale.
             player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
 
                 override fun videoOutput(mp: VlcMediaPlayer, newCount: Int) {
                     if (newCount > 0) {
-                        // Scale 0 = auto-fit to the canvas (no 1:1 pixel mapping)
-                        mp.video().setScale(0f)
-                        mp.video().setAspectRatio(null)   // keep native AR
+                        mp.video().setScale(0f)          // auto-fit, no 1:1 crop
+                        mp.video().setAspectRatio(null)  // keep native AR
                     }
                 }
 
-                // playing() fires after the first frame — apply scale again as
-                // a safety net in case videoOutput fired before the surface was
-                // fully attached.
+                // playing() is a safety-net in case the canvas was resized
+                // between videoOutput and actual frame rendering.
                 override fun playing(mp: VlcMediaPlayer) {
                     mp.video().setScale(0f)
                 }
             })
 
-            mediaPlayerFactory = factory
-            mediaPlayer        = player
-            vlcState           = VlcState.Ready
+            playerComponent = component
+            vlcState        = VlcState.Ready
         } catch (e: Exception) {
             vlcState = VlcState.NotFound
         }
     }
 
-    // ── Stretch toggle: re-apply aspect ratio whenever it changes ─────────────
-    // This runs on the Compose main thread; libvlc calls are thread-safe.
-    LaunchedEffect(isStretched, mediaPlayer) {
-        val p = mediaPlayer ?: return@LaunchedEffect
-        if (p.status().isPlayable) {
-            if (isStretched) {
-                p.video().setAspectRatio("16:9")
-            } else {
-                p.video().setAspectRatio(null)
-            }
-            p.video().setScale(0f)
+    // ── Start playback once the component is ready ────────────────────────────
+    LaunchedEffect(vlcState, streamUrl) {
+        if (vlcState == VlcState.Ready) {
+            val player = playerComponent?.mediaPlayer() ?: return@LaunchedEffect
+            // Small delay so SwingPanel has time to attach the component to the
+            // real Compose/Skia window before VLC tries to use its HWND.
+            delay(150)
+            player.media().play(streamUrl)
+            isPlaying = true
+            resetHideTimer()
         }
     }
 
-    // ── Position/duration polling ─────────────────────────────────────────────
+    // ── Poll position / duration ──────────────────────────────────────────────
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             delay(500)
-            mediaPlayer?.let { p ->
+            playerComponent?.mediaPlayer()?.let { p ->
                 position = p.status().position()
                 val len = p.status().length()
                 if (len > 0) duration = len
@@ -134,12 +132,20 @@ fun VideoPlayerScreen(
         }
     }
 
+    // ── Stretch toggle ────────────────────────────────────────────────────────
+    LaunchedEffect(isStretched) {
+        val p = playerComponent?.mediaPlayer() ?: return@LaunchedEffect
+        if (isStretched) p.video().setAspectRatio("16:9")
+        else             p.video().setAspectRatio(null)
+        p.video().setScale(0f)
+    }
+
+    // ── Cleanup ───────────────────────────────────────────────────────────────
     DisposableEffect(Unit) {
         onDispose {
             try {
-                mediaPlayer?.controls()?.stop()
-                mediaPlayer?.release()
-                mediaPlayerFactory?.release()
+                playerComponent?.mediaPlayer()?.controls()?.stop()
+                playerComponent?.release()
             } catch (_: Exception) {}
         }
     }
@@ -151,8 +157,9 @@ fun VideoPlayerScreen(
             .background(Color.Black)
     ) {
 
-        // ── Video area ────────────────────────────────────────────────────────
         when (vlcState) {
+
+            // ── Loading ───────────────────────────────────────────────────────
             VlcState.Loading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -163,68 +170,24 @@ fun VideoPlayerScreen(
                 }
             }
 
+            // ── VLC not found ─────────────────────────────────────────────────
             VlcState.NotFound -> VlcNotFoundContent(streamUrl, onBack)
 
+            // ── Video panel (SwingPanel wraps EmbeddedMediaPlayerComponent) ───
             VlcState.Ready -> {
-                val factory = mediaPlayerFactory
-                val player  = mediaPlayer
-                if (factory != null && player != null) {
-
-                    // The AWT Canvas that VLC renders into.
-                    // BorderLayout.CENTER inside the JPanel ensures it FILLS
-                    // the panel — no fixed size, no preferred size overrides.
-                    val videoCanvas = remember {
-                        Canvas().apply {
-                            background = java.awt.Color.BLACK
-                        }
-                    }
-
-                    // JPanel acts as the SwingPanel host; Canvas fills it.
-                    val videoPanel = remember {
-                        JPanel(BorderLayout()).apply {
-                            background = java.awt.Color.BLACK
-                            add(videoCanvas, BorderLayout.CENTER)
-
-                            addMouseMotionListener(object : MouseMotionAdapter() {
-                                override fun mouseMoved(e: java.awt.event.MouseEvent)   { onMouseActivity.value() }
-                                override fun mouseDragged(e: java.awt.event.MouseEvent) { onMouseActivity.value() }
-                            })
-                            addMouseListener(object : MouseAdapter() {
-                                override fun mouseClicked(e: java.awt.event.MouseEvent) { onMouseActivity.value() }
-                            })
-                        }
-                    }
-
-                    // Attach surface + start playback once
-                    val surfaceAttached = remember { AtomicBoolean(false) }
-                    LaunchedEffect(streamUrl) {
-                        if (surfaceAttached.compareAndSet(false, true)) {
-                            // Attach AFTER the JPanel/Canvas are realised by Swing
-                            SwingUtilities.invokeLater {
-                                try {
-                                    val surface = factory.videoSurfaces().newVideoSurface(videoCanvas)
-                                    player.videoSurface().set(surface)
-                                    player.media().play(streamUrl)
-                                } catch (_: Exception) {
-                                    vlcState = VlcState.NotFound
-                                }
-                            }
-                            isPlaying = true
-                            resetHideTimer()
-                        }
-                    }
-
-                    // SwingPanel fills the full Box area.
-                    // fillMaxSize() here maps to the full pixel area of the parent Box.
+                val component = playerComponent
+                if (component != null) {
+                    // EmbeddedMediaPlayerComponent IS a JPanel — pass it directly.
+                    // fillMaxSize() makes it fill the entire Box.
                     SwingPanel(
                         modifier = Modifier.fillMaxSize(),
-                        factory  = { videoPanel }
+                        factory  = { component }
                     )
                 }
             }
         }
 
-        // ── Always-visible top bar: Back ← … → Fullscreen ────────────────────
+        // ── Always-visible top row: Back ← ··· → Fullscreen ──────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -233,11 +196,11 @@ fun VideoPlayerScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment     = Alignment.CenterVertically
         ) {
-            CircleIconButton(onClick = onBack) {
+            CircleBtn(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
             }
             if (onFullscreenToggle != null) {
-                CircleIconButton(onClick = onFullscreenToggle) {
+                CircleBtn(onClick = onFullscreenToggle) {
                     Icon(
                         if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
                         if (isFullscreen) "Exit fullscreen" else "Fullscreen",
@@ -266,11 +229,11 @@ fun VideoPlayerScreen(
             ) {
                 // Title
                 Text(
-                    text  = title,
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleSmall,
+                    text       = title,
+                    color      = Color.White,
+                    style      = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 2.dp)
+                    modifier   = Modifier.padding(bottom = 2.dp)
                 )
 
                 // Elapsed / total time
@@ -294,15 +257,15 @@ fun VideoPlayerScreen(
 
                 // Seek bar
                 Slider(
-                    value       = position,
-                    onValueChange = { newPos ->
-                        position = newPos
-                        mediaPlayer?.controls()?.setPosition(newPos)
+                    value         = position,
+                    onValueChange = { pos ->
+                        position = pos
+                        playerComponent?.mediaPlayer()?.controls()?.setPosition(pos)
                         resetHideTimer()
                     },
                     colors = SliderDefaults.colors(
-                        thumbColor        = Color.White,
-                        activeTrackColor  = MaterialTheme.colorScheme.primary,
+                        thumbColor         = Color.White,
+                        activeTrackColor   = MaterialTheme.colorScheme.primary,
                         inactiveTrackColor = Color.White.copy(alpha = 0.25f)
                     ),
                     modifier = Modifier.fillMaxWidth()
@@ -310,17 +273,18 @@ fun VideoPlayerScreen(
 
                 // Buttons row
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier          = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // ─ Rewind 10 s
-                    PlayerIconBtn(onClick = {
-                        mediaPlayer?.controls()?.skipTime(-10_000); resetHideTimer()
+                    // Rewind 10 s
+                    Btn(onClick = {
+                        playerComponent?.mediaPlayer()?.controls()?.skipTime(-10_000)
+                        resetHideTimer()
                     }) { Icon(Icons.Default.Replay10, "–10 s", tint = Color.White) }
 
-                    // ─ Play / Pause
-                    PlayerIconBtn(onClick = {
-                        val p = mediaPlayer ?: return@PlayerIconBtn
+                    // Play / Pause
+                    Btn(onClick = {
+                        val p = playerComponent?.mediaPlayer() ?: return@Btn
                         if (p.status().isPlaying) { p.controls().pause(); isPlaying = false }
                         else                      { p.controls().play();  isPlaying = true  }
                         resetHideTimer()
@@ -333,14 +297,15 @@ fun VideoPlayerScreen(
                         )
                     }
 
-                    // ─ Forward 10 s
-                    PlayerIconBtn(onClick = {
-                        mediaPlayer?.controls()?.skipTime(10_000); resetHideTimer()
+                    // Forward 10 s
+                    Btn(onClick = {
+                        playerComponent?.mediaPlayer()?.controls()?.skipTime(10_000)
+                        resetHideTimer()
                     }) { Icon(Icons.Default.Forward10, "+10 s", tint = Color.White) }
 
                     Spacer(Modifier.weight(1f))
 
-                    // ─ Stretch toggle
+                    // Stretch toggle
                     ToggleChip(
                         label   = "Stretch",
                         active  = isStretched,
@@ -349,23 +314,23 @@ fun VideoPlayerScreen(
 
                     Spacer(Modifier.width(8.dp))
 
-                    // ─ Mute
-                    PlayerIconBtn(onClick = {
-                        mediaPlayer?.audio()?.mute()
+                    // Mute
+                    Btn(onClick = {
+                        playerComponent?.mediaPlayer()?.audio()?.mute()
                         isMuted = !isMuted
                         resetHideTimer()
                     }) {
                         Icon(
                             if (isMuted) Icons.AutoMirrored.Filled.VolumeMute
-                            else Icons.AutoMirrored.Filled.VolumeUp,
+                            else         Icons.AutoMirrored.Filled.VolumeUp,
                             if (isMuted) "Unmute" else "Mute",
                             tint = Color.White
                         )
                     }
 
-                    // ─ Stop → back
-                    PlayerIconBtn(onClick = {
-                        mediaPlayer?.controls()?.stop()
+                    // Stop & back
+                    Btn(onClick = {
+                        playerComponent?.mediaPlayer()?.controls()?.stop()
                         isPlaying = false
                         onBack()
                     }) { Icon(Icons.Default.Stop, "Stop", tint = Color.White) }
@@ -375,7 +340,7 @@ fun VideoPlayerScreen(
     }
 }
 
-// ── Small helpers ─────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 private fun formatMillis(ms: Long): String {
     val s = ms / 1000; val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
@@ -383,7 +348,7 @@ private fun formatMillis(ms: Long): String {
 }
 
 @Composable
-private fun CircleIconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+private fun CircleBtn(onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
         modifier = Modifier
             .size(44.dp)
@@ -394,10 +359,9 @@ private fun CircleIconButton(onClick: () -> Unit, content: @Composable () -> Uni
     }
 }
 
-/** onClick is first so the icon can be the trailing lambda. */
 @Composable
-private fun PlayerIconBtn(onClick: () -> Unit, icon: @Composable () -> Unit) {
-    IconButton(onClick = onClick) { icon() }
+private fun Btn(onClick: () -> Unit, content: @Composable () -> Unit) {
+    IconButton(onClick = onClick) { content() }
 }
 
 @Composable
@@ -405,17 +369,17 @@ private fun ToggleChip(label: String, active: Boolean, onClick: () -> Unit) {
     val bg = if (active) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.14f)
     val fg = if (active) MaterialTheme.colorScheme.onPrimary else Color.White
     Surface(
-        onClick = onClick,
-        shape   = RoundedCornerShape(6.dp),
-        color   = bg,
+        onClick  = onClick,
+        shape    = RoundedCornerShape(6.dp),
+        color    = bg,
         modifier = Modifier.padding(vertical = 2.dp)
     ) {
         Text(
-            text  = label,
-            color = fg,
-            style = MaterialTheme.typography.labelSmall,
+            text       = label,
+            color      = fg,
+            style      = MaterialTheme.typography.labelSmall,
             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            modifier   = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
     }
 }
@@ -423,7 +387,7 @@ private fun ToggleChip(label: String, active: Boolean, onClick: () -> Unit) {
 @Composable
 private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier            = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -438,20 +402,23 @@ private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
         )
         Spacer(Modifier.height(32.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = onBack, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) {
+            OutlinedButton(
+                onClick = onBack,
+                colors  = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+            ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
                 Spacer(Modifier.width(6.dp))
                 Text("Go Back")
             }
             Button(onClick = {
-                val vlcPaths = listOf(
+                val paths = listOf(
                     "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe",
                     "C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe"
                 )
-                val vlcExe = vlcPaths.firstOrNull { java.io.File(it).exists() }
+                val exe = paths.firstOrNull { java.io.File(it).exists() }
                 try {
-                    if (vlcExe != null) ProcessBuilder(vlcExe, streamUrl).start()
-                    else ProcessBuilder("vlc", streamUrl).start()
+                    if (exe != null) ProcessBuilder(exe, streamUrl).start()
+                    else             ProcessBuilder("vlc", streamUrl).start()
                 } catch (_: Exception) {}
             }) {
                 Icon(Icons.Default.PlayCircle, null)
