@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
@@ -29,24 +30,61 @@ fun LibraryScreen(
 ) {
     val repository = remember { LibraryRepository(prefs) }
     val coroutineScope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
 
     var items by remember { mutableStateOf<List<BaseItemDto>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var isLoadingMore by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var currentPage by remember { mutableStateOf(0) }
+    val pageSize = 50
+    var hasMoreItems by remember { mutableStateOf(true) }
 
-    fun loadItems() {
+    fun loadItems(reset: Boolean = false) {
         coroutineScope.launch {
-            isLoading = true
+            if (reset) {
+                currentPage = 0
+                items = emptyList()
+                hasMoreItems = true
+                isLoading = true
+            } else {
+                isLoadingMore = true
+            }
             errorMessage = null
-            when (val result = repository.getLibraryItems(library.id)) {
-                is Result.Success -> items = result.data
+
+            val startIndex = currentPage * pageSize
+
+            when (val result = repository.getLibraryItems(
+                libraryId = library.id,
+                startIndex = startIndex,
+                limit = pageSize
+            )) {
+                is Result.Success -> {
+                    if (reset) {
+                        items = result.data
+                    } else {
+                        items = items + result.data
+                    }
+                    hasMoreItems = result.data.size >= pageSize
+                    currentPage++
+                }
                 is Result.Error -> errorMessage = result.message
             }
+
             isLoading = false
+            isLoadingMore = false
         }
     }
 
-    LaunchedEffect(library.id) { loadItems() }
+    // Load more when reaching the end
+    LaunchedEffect(gridState.firstVisibleItemIndex) {
+        if (!isLoading && !isLoadingMore && hasMoreItems &&
+            gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index == items.size - 1) {
+            loadItems(reset = false)
+        }
+    }
+
+    LaunchedEffect(library.id) { loadItems(reset = true) }
 
     Scaffold(
         topBar = {
@@ -58,7 +96,7 @@ fun LibraryScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { loadItems() }) {
+                    IconButton(onClick = { loadItems(reset = true) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
                 },
@@ -69,7 +107,7 @@ fun LibraryScreen(
         }
     ) { paddingValues ->
         when {
-            isLoading -> {
+            isLoading && items.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
                     contentAlignment = Alignment.Center
@@ -77,7 +115,7 @@ fun LibraryScreen(
                     CircularProgressIndicator()
                 }
             }
-            errorMessage != null -> {
+            errorMessage != null && items.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
                     contentAlignment = Alignment.Center
@@ -85,7 +123,7 @@ fun LibraryScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(8.dp))
-                        Button(onClick = { loadItems() }) { Text("Retry") }
+                        Button(onClick = { loadItems(reset = true) }) { Text("Retry") }
                     }
                 }
             }
@@ -99,6 +137,7 @@ fun LibraryScreen(
             }
             else -> {
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Adaptive(minSize = 160.dp),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -112,6 +151,19 @@ fun LibraryScreen(
                             imageUrl = imageUrl,
                             onClick = { onItemClick(item) }
                         )
+                    }
+
+                    if (isLoadingMore) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
                     }
                 }
             }

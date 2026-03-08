@@ -134,4 +134,48 @@ class LibraryRepository(private val prefs: AppPreferences) {
     } catch (e: Exception) {
         Result.Error("Failed to load episodes: ${e.message}", e)
     }
+
+    suspend fun searchItems(
+        searchTerm: String,
+        startIndex: Int = 0,
+        limit: Int = 50
+    ): Result<List<BaseItemDto>> = try {
+        val response = api.searchItems(
+            userId = prefs.userId,
+            auth = auth,
+            searchTerm = searchTerm,
+            startIndex = startIndex,
+            limit = limit
+        )
+        Result.Success(response.items)
+    } catch (e: Exception) {
+        Result.Error("Failed to search: ${e.message}", e)
+    }
+
+    suspend fun getFavoriteItems(
+        startIndex: Int = 0,
+        limit: Int = 50
+    ): Result<List<BaseItemDto>> = try {
+        val response = api.getFavoriteItems(
+            userId = prefs.userId,
+            auth = auth,
+            startIndex = startIndex,
+            limit = limit
+        )
+        Result.Success(response.items)
+    } catch (e: Exception) {
+        Result.Error("Failed to load favorites: ${e.message}", e)
+    }
+
+    suspend fun getTotalItemCount(libraryId: String? = null): Result<Int> = try {
+        val response = api.getItems(
+            userId = prefs.userId,
+            auth = auth,
+            parentId = libraryId,
+            limit = 0
+        )
+        Result.Success(response.totalRecordCount)
+    } catch (e: Exception) {
+        Result.Error("Failed to get count: ${e.message}", e)
+    }
 }

@@ -27,7 +27,7 @@ fun HomeScreen(
     prefs: AppPreferences,
     onItemClick: (BaseItemDto) -> Unit,
     onLibraryClick: (BaseItemDto) -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit = {}
 ) {
     val repository = remember { LibraryRepository(prefs) }
     val coroutineScope = rememberCoroutineScope()

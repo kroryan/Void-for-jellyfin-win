@@ -113,4 +113,29 @@ interface JellyfinApi {
         @Query("UserId") userId: String,
         @Query("Fields") fields: String = "PrimaryImageAspectRatio"
     ): LibraryResponse
+
+    @GET("Users/{userId}/Items")
+    suspend fun searchItems(
+        @Path("userId") userId: String,
+        @Header("X-Emby-Authorization") auth: String,
+        @Query("SearchTerm") searchTerm: String,
+        @Query("IncludeItemTypes") includeItemTypes: String? = null,
+        @Query("Recursive") recursive: Boolean = true,
+        @Query("Fields") fields: String = "PrimaryImageAspectRatio,BasicSyncInfo,Overview,Genres",
+        @Query("StartIndex") startIndex: Int = 0,
+        @Query("Limit") limit: Int = 50
+    ): LibraryResponse
+
+    @GET("Users/{userId}/Items")
+    suspend fun getFavoriteItems(
+        @Path("userId") userId: String,
+        @Header("X-Emby-Authorization") auth: String,
+        @Query("IsFavorite") isFavorite: Boolean = true,
+        @Query("Recursive") recursive: Boolean = true,
+        @Query("Fields") fields: String = "PrimaryImageAspectRatio,BasicSyncInfo,Overview,Genres",
+        @Query("SortBy") sortBy: String = "DateCreated",
+        @Query("SortOrder") sortOrder: String = "Descending",
+        @Query("StartIndex") startIndex: Int = 0,
+        @Query("Limit") limit: Int = 50
+    ): LibraryResponse
 }
