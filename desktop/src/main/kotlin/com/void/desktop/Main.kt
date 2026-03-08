@@ -25,16 +25,29 @@ fun loadAppIcon(): BufferedImage? =
     }
 
 fun main() {
-    // Configure Coil 3 image loader with OkHttp
-    SingletonImageLoader.setSafe { context ->
-        ImageLoader.Builder(context)
-            .components {
-                add(OkHttpNetworkFetcherFactory(callFactory = { ApiClient.okHttpClient }))
-            }
-            .build()
+    // Set up error handler to catch initialization errors
+    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        throwable.printStackTrace()
+        javax.swing.JOptionPane.showMessageDialog(
+            null,
+            "Error starting Void for Jellyfin:\n\n${throwable.message}\n\nStack trace:\n${throwable.stackTraceToString()}",
+            "Startup Error",
+            javax.swing.JOptionPane.ERROR_MESSAGE
+        )
+        System.exit(1)
     }
 
-    application {
+    try {
+        // Configure Coil 3 image loader with OkHttp
+        SingletonImageLoader.setSafe { context ->
+            ImageLoader.Builder(context)
+                .components {
+                    add(OkHttpNetworkFetcherFactory(callFactory = { ApiClient.okHttpClient }))
+                }
+                .build()
+        }
+
+        application {
         val windowState = rememberWindowState(
             size = DpSize(1280.dp, 800.dp),
             placement = WindowPlacement.Floating,
@@ -101,5 +114,15 @@ fun main() {
             }
             } // end CompositionLocalProvider
         }
+    }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        javax.swing.JOptionPane.showMessageDialog(
+            null,
+            "Failed to start Void for Jellyfin:\n\n${e.message}\n\n${e.stackTraceToString()}",
+            "Fatal Error",
+            javax.swing.JOptionPane.ERROR_MESSAGE
+        )
+        System.exit(1)
     }
 }

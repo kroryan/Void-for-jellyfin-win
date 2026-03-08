@@ -43,15 +43,26 @@ compose.desktop {
     application {
         mainClass = "com.void.desktop.MainKt"
 
+        // JVM arguments for better compatibility
+        jvmArgs += listOf(
+            "-Dcompose.swing.render.on.graphics=true",
+            "-Dskiko.render.api=opengl",
+            "-Xmx2048m"
+        )
+
         nativeDistributions {
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
-            packageName = "Void for Jellyfin"
-            packageVersion = "0.2.6"
+            packageName = "Void_for_Jellyfin"
+            packageVersion = "0.2.7"
             description = "A beautiful Jellyfin client for Windows"
             vendor = "Void"
+            copyright = "© 2025 Void"
             includeAllModules = true
 
             appResourcesRootDir = project.layout.projectDirectory.dir("src/main/resources")
+
+            // Generate all required modules
+            modules("java.sql", "jdk.unsupported", "java.naming", "java.desktop", "java.xml")
 
             windows {
                 menuGroup = "Void for Jellyfin"
@@ -59,11 +70,8 @@ compose.desktop {
                 iconFile.set(project.file("src/main/resources/icon.ico"))
                 shortcut = true
                 dirChooser = true
-                // Create both installer and portable versions
                 perUserInstall = true
             }
-
-            modules("java.sql", "jdk.unsupported")
         }
     }
 }

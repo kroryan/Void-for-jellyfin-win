@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew :desktop:compileKotlin:*)",
+      "Bash(jobs:*)",
+      "Bash(./gradlew :desktop:run:*)",
+      "Bash(./gradlew :desktop:packageExe:*)",
+      "Bash(python:*)",
+      "WebSearch",
+      "Bash(mv:*)",
+      "Bash(./gradlew:*)"
+    ]
+  }
+}
