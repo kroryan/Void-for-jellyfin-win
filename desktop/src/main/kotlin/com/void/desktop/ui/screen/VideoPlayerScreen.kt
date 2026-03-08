@@ -2,12 +2,9 @@ package com.void.desktop.ui.screen
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeMute
@@ -30,30 +27,11 @@ import uk.co.caprica.vlcj.factory.discovery.NativeDiscovery
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer
 import java.awt.BorderLayout
 import java.awt.Canvas
-import java.awt.Color as AwtColor
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseMotionAdapter
 import javax.swing.JPanel
-
-enum class AspectRatio(val displayName: String, val vlcArgs: List<String>) {
-    ORIGINAL("Original", emptyList()),
-    FIT("Fit", listOf("--no-keep-aspect-ratio")),
-    FILL("Fill", listOf("--no-keep-aspect-ratio", "--no-video-title-show")),
-    STRETCH("Stretch", listOf("--no-keep-aspect-ratio", "--adaptive", "--video-filter=distort"))
-}
-
-enum class PlaybackSpeed(val multiplier: Float, val displayName: String) {
-    SLOW_0_25(0.25f, "0.25x"),
-    SLOW_0_5(0.5f, "0.5x"),
-    SLOW_0_75(0.75f, "0.75x"),
-    NORMAL_1_0(1.0f, "1.0x"),
-    FAST_1_25(1.25f, "1.25x"),
-    FAST_1_5(1.5f, "1.5x"),
-    FAST_1_75(1.75f, "1.75x"),
-    FAST_2_0(2.0f, "2.0x")
-}
 
 @Composable
 fun VideoPlayerScreen(
@@ -61,8 +39,7 @@ fun VideoPlayerScreen(
     title: String,
     onBack: () -> Unit,
     onFullscreenToggle: (() -> Unit)? = null,
-    isFullscreen: Boolean = false,
-    customVlcPath: String = ""
+    isFullscreen: Boolean = false
 ) {
     var vlcState by remember { mutableStateOf<VlcState>(VlcState.Loading) }
     var mediaPlayerFactory by remember { mutableStateOf<MediaPlayerFactory?>(null) }
@@ -71,13 +48,7 @@ fun VideoPlayerScreen(
     var isMuted by remember { mutableStateOf(false) }
     var position by remember { mutableStateOf(0f) }
     var duration by remember { mutableStateOf(0L) }
-
-    // Settings
-    var currentAspectRatio by remember { mutableStateOf(AspectRatio.FIT) }
-    var currentSpeed by remember { mutableStateOf(PlaybackSpeed.NORMAL_1_0) }
-    var showAspectRatioMenu by remember { mutableStateOf(false) }
-    var showSpeedMenu by remember { mutableStateOf(false) }
-    var currentStreamUrl by remember { mutableStateOf(streamUrl) }
+    var isStretched by remember { mutableStateOf(false) }  // Stretch 4:3 → 16:9
 
     // Controls visibility
     var showControls by remember { mutableStateOf(true) }
@@ -88,7 +59,7 @@ fun VideoPlayerScreen(
         showControls = true
         hideJob?.cancel()
         hideJob = coroutineScope.launch {
-            delay(4000)
+            delay(3500)
             if (isPlaying) showControls = false
         }
     }
@@ -98,69 +69,48 @@ fun VideoPlayerScreen(
     // Initialize VLC
     LaunchedEffect(Unit) {
         try {
-            println("=== Initializing VLC ===")
-
-            // First, try to find VLC and set the plugin path
-            val vlcInfo = findVlcPath(customVlcPath)
-
-            if (vlcInfo == null) {
-                println("Could not find VLC installation")
+            val found = NativeDiscovery().discover()
+            if (!found) {
                 vlcState = VlcState.NotFound
                 return@LaunchedEffect
             }
-
-            println("Found VLC at: ${vlcInfo.vlcDir}")
-            println("Plugins at: ${vlcInfo.pluginDir}")
-
-            // Configure runtime discovery before creating the player factory
-            if (!loadVlcNativeLibraries(vlcInfo)) {
-                println("Failed to load VLC native libraries")
-                vlcState = VlcState.NotFound
-                return@LaunchedEffect
-            }
-
-            // Create MediaPlayerFactory with explicit plugin path
-            println("Creating MediaPlayerFactory...")
-            val args = mutableListOf("--no-video-title-show", "--quiet", "--no-xlib")
-            args.addAll(currentAspectRatio.vlcArgs)
-            println("VLC args: ${args.joinToString(" ")}")
-
-            try {
-                // Prefer explicit plugin path, but keep a fallback for installations where
-                // VLC can self-resolve plugins once native libs are located.
-                val factory = try {
-                    MediaPlayerFactory("--plugin-path=${vlcInfo.pluginDir}", *args.toTypedArray())
-                } catch (e: Exception) {
-                    println("Factory init with plugin path failed, retrying without explicit plugin path: ${e.message}")
-                    MediaPlayerFactory(*args.toTypedArray())
-                }
-                val player = factory.mediaPlayers().newEmbeddedMediaPlayer()
-
-                mediaPlayerFactory = factory
-                mediaPlayer = player
-                vlcState = VlcState.Ready
-                println("VLC initialized successfully")
-            } catch (e: Exception) {
-                println("MediaPlayerFactory creation failed: ${e.message}")
-                e.printStackTrace()
-                vlcState = VlcState.NotFound
-            }
+            val factory = MediaPlayerFactory(
+                "--no-video-title-show",
+                "--quiet",
+                "--avcodec-hw=any"        // enable hardware decoding on Windows
+            )
+            val player = factory.mediaPlayers().newEmbeddedMediaPlayer()
+            mediaPlayerFactory = factory
+            mediaPlayer = player
+            vlcState = VlcState.Ready
         } catch (e: Exception) {
-            println("VLC initialization error: ${e.message}")
-            e.printStackTrace()
             vlcState = VlcState.NotFound
         }
     }
 
-    // Poll playback position
+    // Poll playback position + duration
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             delay(500)
-            mediaPlayer?.let { mp ->
-                position = mp.status().position()
-                val lengthMs = mp.status().length()
-                duration = if (lengthMs > 0) lengthMs else duration
+            mediaPlayer?.let { p ->
+                position = p.status().position()
+                val len = p.status().length()
+                if (len > 0) duration = len
             }
+        }
+    }
+
+    // Apply stretch toggle whenever it changes
+    LaunchedEffect(isStretched) {
+        val p = mediaPlayer ?: return@LaunchedEffect
+        if (isStretched) {
+            // Force 16:9 aspect ratio (stretches 4:3 content to fill wide screen)
+            p.video().setAspectRatio("16:9")
+            p.video().setScale(0f)
+        } else {
+            // Restore original aspect ratio, auto-scale to fit window
+            p.video().setAspectRatio(null)
+            p.video().setScale(0f)
         }
     }
 
@@ -179,13 +129,14 @@ fun VideoPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        when (val state = vlcState) {
+        // ── Video area ──────────────────────────────────────────────────────
+        when (vlcState) {
             VlcState.Loading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = Color.White)
                         Spacer(Modifier.height(12.dp))
-                        Text("Loading player...", color = Color.White.copy(alpha = 0.6f))
+                        Text("Initializing player…", color = Color.White.copy(alpha = 0.6f))
                     }
                 }
             }
@@ -198,59 +149,54 @@ fun VideoPlayerScreen(
                 val factory = mediaPlayerFactory
                 val player = mediaPlayer
                 if (factory != null && player != null) {
-                    // Canvas para renderizar video
                     val videoCanvas = remember {
-                        Canvas().apply { background = AwtColor.BLACK }
+                        Canvas().apply {
+                            background = java.awt.Color.BLACK
+                            // Notify VLC to rescale when canvas resizes
+                            addComponentListener(object : ComponentAdapter() {
+                                override fun componentResized(e: ComponentEvent) {
+                                    player.video().setScale(0f)
+                                }
+                            })
+                        }
                     }
 
-                    // JPanel que contiene el Canvas
                     val videoPanel = remember {
                         JPanel(BorderLayout()).apply {
-                            background = AwtColor.BLACK
+                            background = java.awt.Color.BLACK
                             add(videoCanvas, BorderLayout.CENTER)
-
-                            // Detectar movimientos de ratón
                             addMouseMotionListener(object : MouseMotionAdapter() {
                                 override fun mouseMoved(e: java.awt.event.MouseEvent) {
+                                    onMouseActivity.value()
+                                }
+                                override fun mouseDragged(e: java.awt.event.MouseEvent) {
                                     onMouseActivity.value()
                                 }
                             })
                             addMouseListener(object : MouseAdapter() {
                                 override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                                    // Toggle play/pause on click
-                                    if (isPlaying) {
-                                        player.controls().pause()
-                                        isPlaying = false
-                                    } else {
-                                        player.controls().play()
-                                        isPlaying = true
-                                    }
-                                    resetHideTimer()
+                                    onMouseActivity.value()
                                 }
                             })
                         }
                     }
 
-                    // Iniciar reproducción
                     LaunchedEffect(streamUrl) {
                         try {
                             val surface = factory.videoSurfaces().newVideoSurface(videoCanvas)
                             player.videoSurface().set(surface)
                             player.media().play(streamUrl)
-                            player.controls().setRate(currentSpeed.multiplier)
                             isPlaying = true
+                            // Wait for VLC to start rendering, then set auto-scale
+                            delay(300)
+                            player.video().setScale(0f)          // auto-fit to canvas
+                            player.video().setAspectRatio(null)  // keep original AR
                             resetHideTimer()
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             vlcState = VlcState.NotFound
                         }
                     }
 
-                    // Aplicar cambios de velocidad
-                    LaunchedEffect(currentSpeed) {
-                        player.controls().setRate(currentSpeed.multiplier)
-                    }
-
-                    // Área de video
                     SwingPanel(
                         modifier = Modifier.fillMaxSize(),
                         factory = { videoPanel }
@@ -259,49 +205,49 @@ fun VideoPlayerScreen(
             }
         }
 
-        // ── Back button (top-left) ───────────────────────────────────────
-        Box(
+        // ── Top overlay: Back + Fullscreen (always visible) ────────────────
+        Row(
             modifier = Modifier
-                .align(Alignment.TopStart)
+                .fillMaxWidth()
                 .padding(8.dp)
+                .align(Alignment.TopStart),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.White
-                )
-            }
-        }
-
-        // ── Fullscreen button (top-right) ──────────────────────────────────
-        if (onFullscreenToggle != null) {
+            // Back button
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
+                    .size(44.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
             ) {
-                IconButton(
-                    onClick = onFullscreenToggle,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                ) {
+                IconButton(onClick = onBack) {
                     Icon(
-                        if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                        contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
                         tint = Color.White
                     )
                 }
             }
+
+            // Fullscreen button (always top-right)
+            if (onFullscreenToggle != null) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                ) {
+                    IconButton(onClick = onFullscreenToggle) {
+                        Icon(
+                            if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                            tint = Color.White
+                        )
+                    }
+                }
+            }
         }
 
-        // ── Controls overlay ─────────────────────────────────────────────
+        // ── Bottom controls overlay (auto-hide) ────────────────────────────
         AnimatedVisibility(
             visible = showControls && vlcState == VlcState.Ready,
             enter = fadeIn(),
@@ -313,37 +259,38 @@ fun VideoPlayerScreen(
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.9f),
-                                Color.Black
-                            )
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))
                         )
                     )
-                    .padding(16.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                // Title and time
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = title,
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f)
-                    )
+                // Title
+                Text(
+                    text = title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
 
-                    Text(
-                        text = "${formatTime((position * duration).toLong())} / ${formatTime(duration)}",
-                        color = Color.White.copy(alpha = 0.8f),
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                // Time display
+                if (duration > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = formatMillis((position * duration).toLong()),
+                            color = Color.White.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        Text(
+                            text = formatMillis(duration),
+                            color = Color.White.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
-
-                Spacer(Modifier.height(8.dp))
 
                 // Seek bar
                 Slider(
@@ -361,224 +308,128 @@ fun VideoPlayerScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(Modifier.height(8.dp))
-
-                // Main controls row
+                // Controls row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left: Playback controls
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Rewind 10s
-                        ControlButton(Icons.Default.Replay10, "Rewind 10s") {
-                            mediaPlayer?.controls()?.skipTime(-10_000)
-                            resetHideTimer()
-                        }
+                    // Rewind 10s
+                    PlayerIconButton(onClick = {
+                        mediaPlayer?.controls()?.skipTime(-10_000)
+                        resetHideTimer()
+                    }) { Icon(Icons.Default.Replay10, "Rewind 10s", tint = Color.White) }
 
-                        // Play/Pause
-                        ControlButton(
+                    // Play / Pause
+                    PlayerIconButton(onClick = {
+                        val p = mediaPlayer ?: return@PlayerIconButton
+                        if (p.status().isPlaying) {
+                            p.controls().pause(); isPlaying = false
+                        } else {
+                            p.controls().play(); isPlaying = true
+                        }
+                        resetHideTimer()
+                    }) {
+                        Icon(
                             if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            if (isPlaying) "Pause" else "Play"
-                        ) {
-                            val p = mediaPlayer ?: return@ControlButton
-                            if (p.status().isPlaying) {
-                                p.controls().pause()
-                                isPlaying = false
-                            } else {
-                                p.controls().play()
-                                isPlaying = true
-                            }
+                            if (isPlaying) "Pause" else "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+
+                    // Forward 10s
+                    PlayerIconButton(onClick = {
+                        mediaPlayer?.controls()?.skipTime(10_000)
+                        resetHideTimer()
+                    }) { Icon(Icons.Default.Forward10, "Forward 10s", tint = Color.White) }
+
+                    Spacer(Modifier.weight(1f))
+
+                    // Stretch toggle button
+                    PlayerToggleButton(
+                        active = isStretched,
+                        label = "Stretch",
+                        onClick = {
+                            isStretched = !isStretched
                             resetHideTimer()
                         }
+                    )
 
-                        // Forward 10s
-                        ControlButton(Icons.Default.Forward10, "Forward 10s") {
-                            mediaPlayer?.controls()?.skipTime(10_000)
-                            resetHideTimer()
-                        }
+                    Spacer(Modifier.width(8.dp))
 
-                        // Stop
-                        ControlButton(Icons.Default.Stop, "Stop") {
-                            mediaPlayer?.controls()?.stop()
-                            isPlaying = false
-                            onBack()
-                        }
+                    // Mute
+                    PlayerIconButton(onClick = {
+                        mediaPlayer?.audio()?.mute()
+                        isMuted = !isMuted
+                        resetHideTimer()
+                    }) {
+                        Icon(
+                            if (isMuted) Icons.AutoMirrored.Filled.VolumeMute
+                            else Icons.AutoMirrored.Filled.VolumeUp,
+                            if (isMuted) "Unmute" else "Mute",
+                            tint = Color.White
+                        )
                     }
 
-                    // Center: Speed control
-                    Box {
-                        ControlButton(
-                            Icons.Default.Speed,
-                            "Speed: ${currentSpeed.displayName}"
-                        ) {
-                            showSpeedMenu = true
-                        }
-
-                        DropdownMenu(
-                            expanded = showSpeedMenu,
-                            onDismissRequest = { showSpeedMenu = false }
-                        ) {
-                            PlaybackSpeed.values().forEach { speed ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            speed.displayName,
-                                            fontWeight = if (speed == currentSpeed) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    },
-                                    onClick = {
-                                        currentSpeed = speed
-                                        showSpeedMenu = false
-                                        resetHideTimer()
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // Right: Settings controls
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Aspect ratio
-                        Box {
-                            ControlButton(
-                                Icons.Default.AspectRatio,
-                                "Aspect Ratio: ${currentAspectRatio.displayName}"
-                            ) {
-                                showAspectRatioMenu = true
-                            }
-
-                            DropdownMenu(
-                                expanded = showAspectRatioMenu,
-                                onDismissRequest = { showAspectRatioMenu = false }
-                            ) {
-                                AspectRatio.values().forEach { ratio ->
-                                    DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            ratio.displayName,
-                                            fontWeight = if (ratio == currentAspectRatio) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    },
-                                    onClick = {
-                                        currentAspectRatio = ratio
-                                        showAspectRatioMenu = false
-                                        resetHideTimer()
-                                        // Restart playback with new aspect ratio
-                                        mediaPlayer?.let { mp ->
-                                            mp.controls().stop()
-                                            mp.media().play(currentStreamUrl)
-                                            isPlaying = true
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                        // Mute
-                        ControlButton(
-                            if (isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
-                            if (isMuted) "Unmute" else "Mute"
-                        ) {
-                            mediaPlayer?.audio()?.mute()
-                            isMuted = !isMuted
-                            resetHideTimer()
-                        }
-                    }
+                    // Stop & back
+                    PlayerIconButton(onClick = {
+                        mediaPlayer?.controls()?.stop()
+                        isPlaying = false
+                        onBack()
+                    }) { Icon(Icons.Default.Stop, "Stop", tint = Color.White) }
                 }
             }
         }
     }
 }
 
+/** Format milliseconds as h:mm:ss or mm:ss */
+private fun formatMillis(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s)
+    else "%d:%02d".format(m, s)
+}
+
 @Composable
-private fun ControlButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
+private fun PlayerIconButton(
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    IconButton(onClick = onClick) { content() }
+}
+
+/** A text button that shows highlighted when active (for toggles like Stretch). */
+@Composable
+private fun PlayerToggleButton(
+    active: Boolean,
+    label: String,
     onClick: () -> Unit
 ) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.size(40.dp)
+    val bg = if (active) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.15f)
+    val fg = if (active) MaterialTheme.colorScheme.onPrimary else Color.White
+
+    Box(
+        modifier = Modifier
+            .background(bg, RoundedCornerShape(4.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            tint = Color.White,
-            modifier = Modifier.size(24.dp)
-        )
+        TextButton(onClick = onClick, contentPadding = PaddingValues(0.dp)) {
+            Text(
+                text = label,
+                color = fg,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+            )
+        }
     }
 }
 
 @Composable
 private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
-    var diagnosticInfo by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        val info = buildString {
-            val vlcPaths = mutableListOf<String>()
-
-            // Standard paths
-            vlcPaths.add("C:\\Program Files\\VideoLAN\\VLC")
-            vlcPaths.add("C:\\Program Files (x86)\\VideoLAN\\VLC")
-            System.getenv("LOCALAPPDATA")?.let {
-                vlcPaths.add("$it\\Programs\\VideoLAN\\VLC")
-            }
-            System.getenv("ProgramFiles")?.let {
-                vlcPaths.add("$it\\VideoLAN\\VLC")
-            }
-            System.getenv("ProgramFiles(x86)")?.let {
-                vlcPaths.add("$it\\VideoLAN\\VLC")
-            }
-
-            appendLine("VLC Diagnostic Information:")
-            appendLine("")
-
-            // Check if VLC is in PATH
-            try {
-                val process = ProcessBuilder("where", "vlc").start()
-                val output = process.inputStream.bufferedReader().readText()
-                if (output.isNotBlank()) {
-                    appendLine("✓ VLC found in PATH: ${output.lines().first()}")
-                    appendLine("")
-                }
-            } catch (e: Exception) {
-                appendLine("✗ VLC not found in PATH")
-                appendLine("")
-            }
-
-            vlcPaths.distinct().forEach { path ->
-                val vlcDir = java.io.File(path)
-                val pluginsDir = java.io.File(path, "plugins")
-                val libvlccore = java.io.File(path, "libvlccore.dll")
-                val libvlc = java.io.File(path, "libvlc.dll")
-                val vlcExe = java.io.File(path, "vlc.exe")
-
-                appendLine("Path: $path")
-                appendLine("  Directory: ${if (vlcDir.exists()) "✓" else "✗"}")
-                appendLine("  vlc.exe: ${if (vlcExe.exists()) "✓" else "✗"}")
-                appendLine("  plugins/: ${if (pluginsDir.exists()) "✓" else "✗"}")
-                appendLine("  libvlc.dll: ${if (libvlc.exists()) "✓" else "✗"}")
-                appendLine("  libvlccore.dll: ${if (libvlccore.exists()) "✓" else "✗"}")
-                appendLine("")
-            }
-
-            appendLine("System Properties:")
-            appendLine("  java.library.path: ${System.getProperty("java.library.path")}")
-            appendLine("  vlc.plugin.path: ${System.getProperty("vlc.plugin.path", "Not set")}")
-            appendLine("  user.home: ${System.getProperty("user.home")}")
-        }
-        diagnosticInfo = info
-    }
-
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -588,59 +439,21 @@ private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
             Icons.Default.Warning,
             contentDescription = null,
             tint = Color(0xFFFFD700),
-            modifier = Modifier.size(64.dp)
+            modifier = Modifier.size(56.dp)
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            "VLC initialization failed",
+            "VLC Media Player not found",
             color = Color.White,
             style = MaterialTheme.typography.titleLarge
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "VLC is installed but its native libraries could not be loaded",
-            color = Color.White.copy(alpha = 0.8f),
+            "Install VLC from videolan.org to enable playback",
+            color = Color.White.copy(alpha = 0.6f),
             style = MaterialTheme.typography.bodyMedium
         )
-        Text(
-            "Try setting the VLC path manually in Settings > Playback",
-            color = Color.White.copy(alpha = 0.6f),
-            style = MaterialTheme.typography.bodySmall
-        )
-
-        Spacer(Modifier.height(24.dp))
-
-        // Diagnostic section
-        Card(
-            modifier = Modifier
-                .fillMaxWidth(0.8f)
-                .padding(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color.White.copy(alpha = 0.1f)
-            )
-        ) {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    "Diagnostic Information",
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                Text(
-                    diagnosticInfo,
-                    color = Color.White.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                )
-            }
-        }
-
-        Spacer(Modifier.height(24.dp))
-
+        Spacer(Modifier.height(32.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
                 onClick = onBack,
@@ -651,19 +464,10 @@ private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
                 Text("Go Back")
             }
             Button(onClick = {
-                val vlcPaths = mutableListOf<String>()
-                vlcPaths.add("C:\\Program Files\\VideoLAN\\VLC\\vlc.exe")
-                vlcPaths.add("C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe")
-                System.getenv("LOCALAPPDATA")?.let {
-                    vlcPaths.add("$it\\Programs\\VideoLAN\\VLC\\vlc.exe")
-                }
-                System.getenv("ProgramFiles")?.let {
-                    vlcPaths.add("$it\\VideoLAN\\VLC\\vlc.exe")
-                }
-                System.getenv("ProgramFiles(x86)")?.let {
-                    vlcPaths.add("$it\\VideoLAN\\VLC\\vlc.exe")
-                }
-
+                val vlcPaths = listOf(
+                    "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe",
+                    "C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe"
+                )
                 val vlcExe = vlcPaths.firstOrNull { java.io.File(it).exists() }
                 try {
                     if (vlcExe != null) {
@@ -671,14 +475,7 @@ private fun VlcNotFoundContent(streamUrl: String, onBack: () -> Unit) {
                     } else {
                         ProcessBuilder("vlc", streamUrl).start()
                     }
-                } catch (_: Exception) {
-                    javax.swing.JOptionPane.showMessageDialog(
-                        null,
-                        "Could not launch VLC. Please open VLC manually and play:\n\n${streamUrl}",
-                        "Error",
-                        javax.swing.JOptionPane.ERROR_MESSAGE
-                    )
-                }
+                } catch (_: Exception) {}
             }) {
                 Icon(Icons.Default.PlayCircle, null)
                 Spacer(Modifier.width(6.dp))
@@ -692,279 +489,4 @@ private sealed class VlcState {
     object Loading : VlcState()
     object NotFound : VlcState()
     object Ready : VlcState()
-}
-
-private fun formatTime(seconds: Long): String {
-    val totalSeconds = (seconds / 1000).toInt()
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val secs = totalSeconds % 60
-
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, secs)
-    } else {
-        String.format("%d:%02d", minutes, secs)
-    }
-}
-
-// Manual VLC discovery - check common installation paths
-fun discoverVlcManually(): Boolean {
-    println("=== Starting manual VLC discovery ===")
-
-    // Try to find VLC by checking PATH first
-    try {
-        val process = ProcessBuilder("where", "vlc").start()
-        val output = process.inputStream.bufferedReader().readText()
-        if (output.isNotBlank()) {
-            val vlcExePath = output.lines().first()
-            val vlcDir = java.io.File(vlcExePath).parent
-            println("Found VLC in PATH: $vlcDir")
-            if (validateAndSetVlcPath(vlcDir)) return true
-        }
-    } catch (e: Exception) {
-        println("VLC not found in PATH: ${e.message}")
-    }
-
-    // Check standard installation paths
-    val vlcPaths = mutableListOf<String>()
-
-    // Standard paths
-    vlcPaths.add("C:\\Program Files\\VideoLAN\\VLC")
-    vlcPaths.add("C:\\Program Files (x86)\\VideoLAN\\VLC")
-    System.getenv("LOCALAPPDATA")?.let {
-        vlcPaths.add("$it\\Programs\\VideoLAN\\VLC")
-    }
-
-    // Environment-based paths
-    System.getenv("ProgramFiles")?.let {
-        vlcPaths.add("$it\\VideoLAN\\VLC")
-    }
-    System.getenv("ProgramFiles(x86)")?.let {
-        vlcPaths.add("$it\\VideoLAN\\VLC")
-    }
-
-    for (path in vlcPaths.distinct()) {
-        if (validateAndSetVlcPath(path)) return true
-    }
-
-    println("=== VLC not found in any location ===")
-    return false
-}
-
-// Data class to hold VLC path information
-data class VlcInfo(val vlcDir: String, val pluginDir: String)
-
-// Find VLC installation - returns null if not found
-fun findVlcPath(customPath: String = ""): VlcInfo? {
-    println("=== Finding VLC installation ===")
-
-    val vlcPaths = mutableListOf<String>()
-
-    // Custom path first
-    if (customPath.isNotBlank()) {
-        vlcPaths.add(normalizeVlcPath(customPath.trim()))
-    }
-
-    // Standard paths
-    vlcPaths.add("C:\\Program Files\\VideoLAN\\VLC")
-    vlcPaths.add("C:\\Program Files (x86)\\VideoLAN\\VLC")
-    System.getenv("LOCALAPPDATA")?.let {
-        vlcPaths.add("$it\\Programs\\VideoLAN\\VLC")
-    }
-    System.getenv("ProgramFiles")?.let {
-        vlcPaths.add("$it\\VideoLAN\\VLC")
-    }
-    System.getenv("ProgramFiles(x86)")?.let {
-        vlcPaths.add("$it\\VideoLAN\\VLC")
-    }
-
-    // Check PATH
-    try {
-        val process = ProcessBuilder("where", "vlc").start()
-        val output = process.inputStream.bufferedReader().readText()
-        if (output.isNotBlank()) {
-            val vlcExePath = output
-                .lineSequence()
-                .map { it.trim() }
-                .firstOrNull { it.isNotBlank() }
-            val vlcDir = vlcExePath?.let { normalizeVlcPath(it) }
-            println("Found VLC in PATH: $vlcDir")
-            if (customPath.isBlank() && !vlcDir.isNullOrBlank()) {
-                vlcPaths.add(0, vlcDir)
-            }
-        }
-    } catch (e: Exception) {
-        println("VLC not in PATH")
-    }
-
-    for (path in vlcPaths.distinct()) {
-        val vlcDir = java.io.File(path)
-        val pluginDir = java.io.File(path, "plugins")
-        val libvlccore = java.io.File(path, "libvlccore.dll")
-        val libvlc = java.io.File(path, "libvlc.dll")
-
-        println("Checking: $path")
-        println("  Directory: ${vlcDir.exists()}")
-        println("  plugins/: ${pluginDir.exists()}")
-        println("  libvlc.dll: ${libvlc.exists()}")
-        println("  libvlccore.dll: ${libvlccore.exists()}")
-
-        if (vlcDir.exists() && pluginDir.exists() && libvlc.exists() && libvlccore.exists()) {
-            println("✓ Found complete VLC installation at: $path")
-            return VlcInfo(path, pluginDir.absolutePath)
-        }
-    }
-
-    println("✗ Complete VLC installation not found")
-    return null
-}
-
-// Load VLC native libraries explicitly
-fun loadVlcNativeLibraries(vlcInfo: VlcInfo): Boolean {
-    println("=== Setting up VLC native libraries ===")
-
-    try {
-        // Hint JNA/VLCJ where libvlc resides before factory creation.
-        System.setProperty("jna.library.path", vlcInfo.vlcDir)
-        System.setProperty("vlc.plugin.path", vlcInfo.pluginDir)
-
-        println("System properties set:")
-        println("  jna.library.path: ${vlcInfo.vlcDir}")
-        println("  vlc.plugin.path: ${vlcInfo.pluginDir}")
-
-        // Run discovery for diagnostics only; factory init still gets a fallback path.
-        println("\nTrying NativeDiscovery...")
-        val discovered = try {
-            NativeDiscovery().discover()
-        } catch (e: Exception) {
-            println("  Discovery error: ${e.message}")
-            false
-        }
-
-        println("  Discovery result: $discovered")
-
-        if (discovered) println("✓ VLC libraries found and can be loaded")
-        else println("⚠ NativeDiscovery failed, continuing with explicit VLC args")
-        return true
-
-    } catch (e: Exception) {
-        println("✗ Failed to setup libraries: ${e.message}")
-        e.printStackTrace()
-        return false
-    }
-}
-
-private fun normalizeVlcPath(path: String): String {
-    val trimmed = path.trim().removeSurrounding("\"")
-    val file = java.io.File(trimmed)
-    if (file.isFile) {
-        return file.parent ?: trimmed
-    }
-    return trimmed
-}
-
-// Find VLC plugin path - returns null if not found (deprecated, use findVlcPath instead)
-@Deprecated("Use findVlcPath instead")
-fun findVlcPluginPath(customPath: String = ""): String? {
-    println("=== Finding VLC plugin path ===")
-    println("Custom path: \"$customPath\"")
-
-    // List of possible VLC locations
-    val vlcPaths = mutableListOf<String>()
-
-    // If custom path is provided, check it first
-    if (customPath.isNotBlank()) {
-        println("Checking custom path first...")
-        vlcPaths.add(0, customPath.trim())
-    }
-
-    // Standard paths
-    vlcPaths.add("C:\\Program Files\\VideoLAN\\VLC")
-    vlcPaths.add("C:\\Program Files (x86)\\VideoLAN\\VLC")
-    System.getenv("LOCALAPPDATA")?.let {
-        vlcPaths.add("$it\\Programs\\VideoLAN\\VLC")
-    }
-    System.getenv("ProgramFiles")?.let {
-        vlcPaths.add("$it\\VideoLAN\\VLC")
-    }
-    System.getenv("ProgramFiles(x86)")?.let {
-        vlcPaths.add("$it\\VideoLAN\\VLC")
-    }
-
-    // Try to find VLC in PATH
-    try {
-        val process = ProcessBuilder("where", "vlc").start()
-        val output = process.inputStream.bufferedReader().readText()
-        if (output.isNotBlank()) {
-            val vlcExePath = output.lines().first()
-            val vlcDir = java.io.File(vlcExePath).parent
-            println("Found VLC in PATH: $vlcDir")
-            if (customPath.isBlank()) {
-                vlcPaths.add(0, vlcDir) // Add at the beginning if no custom path
-            } else {
-                vlcPaths.add(vlcDir)
-            }
-        }
-    } catch (e: Exception) {
-        println("VLC not found in PATH")
-    }
-
-    for (path in vlcPaths.distinct()) {
-        val pluginsDir = java.io.File(path, "plugins")
-        val libvlccore = java.io.File(path, "libvlccore.dll")
-        val libvlc = java.io.File(path, "libvlc.dll")
-
-        println("Checking: $path")
-        println("  plugins/: ${pluginsDir.exists()}")
-        println("  libvlc.dll: ${libvlc.exists()}")
-        println("  libvlccore.dll: ${libvlccore.exists()}")
-
-        if (pluginsDir.exists() && (libvlccore.exists() || libvlc.exists())) {
-            println("✓ Found VLC at: $path")
-
-            // Set system properties
-            System.setProperty("vlc.plugin.path", pluginsDir.absolutePath)
-            System.setProperty("java.library.path", path)
-
-            return pluginsDir.absolutePath
-        }
-    }
-
-    println("✗ VLC not found")
-    return null
-}
-
-private fun validateAndSetVlcPath(path: String): Boolean {
-    val vlcDir = java.io.File(path)
-    val pluginsDir = java.io.File(path, "plugins")
-    val libvlccore = java.io.File(path, "libvlccore.dll")
-    val libvlc = java.io.File(path, "libvlc.dll")
-
-    println("Checking VLC path: $path")
-    println("  Directory exists: ${vlcDir.exists()}")
-    println("  libvlccore.dll exists: ${libvlccore.exists()}")
-    println("  libvlc.dll exists: ${libvlc.exists()}")
-    println("  plugins/ exists: ${pluginsDir.exists()}")
-
-    if (vlcDir.exists() && (libvlccore.exists() || libvlc.exists())) {
-        println("✓ Found VLC at: $path")
-
-        // Set plugin path
-        if (pluginsDir.exists()) {
-            System.setProperty("vlc.plugin.path", pluginsDir.absolutePath)
-            println("  Set VLC plugin path: ${pluginsDir.absolutePath}")
-        }
-
-        // Add to java.library.path
-        try {
-            System.setProperty("java.library.path", path)
-            println("  Set java.library.path: $path")
-        } catch (e: Exception) {
-            println("  Warning: Could not set java.library.path: ${e.message}")
-        }
-
-        return true
-    }
-
-    return false
 }
