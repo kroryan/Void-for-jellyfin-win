@@ -1,52 +1,86 @@
-# 
-</div>
-
 <div align="center">
 
 <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/Fugaz%20One_void.png" alt="Void Logo" width="160" height="160">
 
-**A modern, minimal Android client for Jellyfin**
+**A modern, minimal Jellyfin client — for Android and Windows**
 
-Built entirely with **Kotlin** and **Jetpack Compose**
+Built entirely with **Kotlin**, **Jetpack Compose** and **Compose Multiplatform**
 
-[![Android API](https://img.shields.io/badge/API-26%2B-brightgreen.svg?style=flat)](https://android-arsenal.com/api?level=26)
-[![Kotlin](https://img.shields.io/badge/kotlin-1.9.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
-[![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-1.5.15-green.svg)](https://developer.android.com/jetpack/compose)
+[![Android API](https://img.shields.io/badge/Android-API%2026%2B-brightgreen.svg?style=flat&logo=android)](https://android-arsenal.com/api?level=26)
+[![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg?style=flat&logo=windows)](https://github.com/hritwikjohri/Void-for-jellyfin-win/releases)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-blue.svg?logo=kotlin)](http://kotlinlang.org)
+[![Compose Multiplatform](https://img.shields.io/badge/Compose%20Multiplatform-1.7.0-green.svg)](https://www.jetbrains.com/lp/compose-multiplatform/)
 
 </div>
 
 ---
 
-## ✨ Features
+## 🖥️ Windows Desktop Client *(new)*
 
-### 🎯 Core Functionality
-- **Jellyfin Integration** - Full server authentication and user management
-- **Library Browsing** - Explore your media collection with intuitive navigation
-- **Advanced Search** - Find your content quickly with comprehensive search
-- **Detailed Media Views** - Rich metadata display with cast, crew, and plot information
+A native Windows desktop app built with **Compose Multiplatform**, sharing the same Jellyfin API layer as the Android app.
 
-### 🎵 Media Playback
-- **MPV Player** - High-quality video playback with excellent format support
-- **ExoPlayer Support** - Alternative playback engine for broader compatibility
-- **Picture-in-Picture** - Continue watching while using other apps
-- **Theme Song Support** - Immersive experience with background audio
+### Features
+- **Custom dark title bar** — borderless window with minimize / maximize / close controls
+- **Library browsing** — full grid view of your Jellyfin libraries and media items
+- **Media detail view** — backdrop, overview, cast, genres, ratings, mark played / favorite
+- **Embedded video player** — powered by [VLC](https://www.videolan.org/vlc/) via VLCJ
+  - Seek bar, play/pause, ±10 s skip, mute
+  - **Fullscreen mode** — F11 or the ⛶ button (Escape to exit)
+  - Controls auto-hide on mouse inactivity; persistent back button always visible
+- **Persistent sessions** — credentials stored in `~/.void-jellyfin/prefs.json`
 
-### 📱 Modern UI/UX
-- **Material 3 Design** - Beautiful, adaptive UI following Google's design principles
-- **Dynamic Themes** - Colors that adapt to your content and system preferences
-- **Ambient Backgrounds** - Stunning visual effects that enhance your viewing experience
-- **Responsive Layout** - Optimized for phones, tablets, and various screen sizes
+### Requirements
+- Windows 10 / 11 (64-bit)
+- **[VLC Media Player](https://www.videolan.org/vlc/)** installed (for video playback)
+- Java 17+ (bundled in the installer)
 
-### 🔄 Advanced Features
-- **Offline Downloads** - Download content for offline viewing with progress notifications
-- **Client-side Watchlist** - Keep track of your favorite content
-- **Multiple Quality Options** - Choose from Auto, 4K, 1080p, 720p, 480p, 360p
-- **Subtitle Support** - Full subtitle support with customizable sizing
-- **Background Sync** - Automatic content synchronization
+### Installation
+1. Download `Void for Jellyfin-0.2.6.exe` from the [Releases](../../releases) page
+2. Run the installer
+3. Launch **Void for Jellyfin** from the Start menu
+4. Enter your Jellyfin server URL and sign in
+
+### Build from source
+```bash
+./gradlew :desktop:run          # Run in dev mode
+./gradlew :desktop:packageExe   # Build installer (.exe)
+./gradlew :desktop:packageMsi   # Build MSI package
+```
 
 ---
 
-## 📱 Screenshots
+## 📱 Android App
+
+### ✨ Features
+
+#### 🎯 Core Functionality
+- **Jellyfin Integration** — Full server authentication and user management
+- **Library Browsing** — Explore your media collection with intuitive navigation
+- **Advanced Search** — Find your content quickly with comprehensive search
+- **Detailed Media Views** — Rich metadata display with cast, crew, and plot information
+
+#### 🎵 Media Playback
+- **MPV Player** — High-quality video playback with excellent format support
+- **ExoPlayer Support** — Alternative playback engine for broader compatibility
+- **Picture-in-Picture** — Continue watching while using other apps
+- **Theme Song Support** — Immersive experience with background audio
+
+#### 📱 Modern UI/UX
+- **Material 3 Design** — Beautiful, adaptive UI following Google's design principles
+- **Dynamic Themes** — Colors that adapt to your content and system preferences
+- **Ambient Backgrounds** — Stunning visual effects that enhance your viewing experience
+- **Responsive Layout** — Optimized for phones, tablets, and various screen sizes
+
+#### 🔄 Advanced Features
+- **Offline Downloads** — Download content for offline viewing with progress notifications
+- **Client-side Watchlist** — Keep track of your favourite content
+- **Multiple Quality Options** — Auto, 4K, 1080p, 720p, 480p, 360p
+- **Subtitle Support** — Full subtitle support with customisable sizing
+- **Background Sync** — Automatic content synchronisation
+
+---
+
+## 📸 Screenshots
 
 <div align="center">
 
@@ -62,134 +96,73 @@ Built entirely with **Kotlin** and **Jetpack Compose**
 |----------|--------|--------|
 | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/07_Category.png?raw=true" alt="Category" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/08_Search.png?raw=true" alt="Search" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/10_Season.png?raw=true" alt="Season" width="200" height="400"> |
 
-| Episode | Settings |
-|---------|----------|
-| <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/11_Episode.png?raw=true" alt="Episode" width="200" height="400"> | <img src="https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/alpha-v-0.2.1/12_Settings.png?raw=true" alt="Settings" width="200" height="400"> |
-
 </div>
 
-
-
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting Started — Android
 
 ### Prerequisites
-
-- Android device running **API level 26+** (Android 8.0)
+- Android device running **API 26+** (Android 8.0)
 - A running **Jellyfin server** (version 10.8+)
-- **Java 11** or higher (for development)
 
 ### Installation
-
-#### Download APK from Github
 1. Go to the [Releases](../../releases) page
-2. Download the latest APK file
-3. Enable "Install from Unknown Sources" in your Android settings
-4. Install the APK
-
-#### Download from PlayStore
-1. Go to the Play store and search for void
-
-### First Time Setup
-
-1. **Launch Void** on your Android device
-2. **Enter Server URL** - Input your Jellyfin server address (e.g., `http://192.168.1.100:8096`)
-3. **Login** - Use your Jellyfin username and password
-4. **Configure Preferences** - Set up your preferred quality, player, and download settings
-5. **Start Streaming!** - Browse your library and enjoy your content
+2. Download the latest `.apk`
+3. Enable *Install from Unknown Sources* in Android settings
+4. Install the APK and launch Void
 
 ---
 
-## 🛠️ Tech Stack & Architecture
+## 🛠️ Tech Stack
 
-### Platform & Framework
-- **Target SDK**: 35 (Android 14)
-- **Minimum SDK**: 26 (Android 8.0)
-- **Language**: Kotlin 1.9.0
-- **UI Framework**: Jetpack Compose 1.5.15
+### Android
+| Layer | Technology |
+|-------|-----------|
+| Language | Kotlin 2.0.21 |
+| UI | Jetpack Compose + Material 3 |
+| DI | Hilt |
+| Async | Coroutines + Flow |
+| Media | MPV-Android + ExoPlayer (Media3) |
+| Networking | Retrofit + OkHttp |
+| Storage | Room + DataStore |
+| Images | Coil |
 
-### Core Libraries
-- **Architecture**: Clean Architecture (Data/Domain/Presentation layers)
-- **Dependency Injection**: Hilt
-- **Async Programming**: Kotlin Coroutines + Flow
-- **Navigation**: Navigation Compose
-- **State Management**: ViewModel + StateFlow
-
-### Media & Networking
-- **Media Player**: MPV-Android + ExoPlayer (Media3)
-- **Image Loading**: Coil (with GIF/SVG support)
-- **Networking**: Retrofit + OkHttp
-- **Serialization**: Kotlinx Serialization
-- **Jellyfin SDK**: Jellyfin Core
-
-### Storage & Persistence
-- **Database**: Room
-- **Preferences**: DataStore
-- **Work Manager**: Background tasks and downloads
-- **File Provider**: Secure file sharing
-
-### UI Components
-- **Design System**: Material 3
-- **Icons**: Material Icons Extended
-- **Responsive Design**: SDP/SSP Compose
-- **Color Extraction**: Palette API
-- **Permissions**: Accompanist Permissions
-
----
-
-## 🔧 Configuration
-
-### Player Settings
-- **Primary Player**: MPV (recommended for best performance)
-- **Fallback Player**: ExoPlayer (better compatibility)
-- **Display Mode**: Fit Screen, Fill Screen, Original Size
-- **Hardware Acceleration**: Enabled by default
-
-### Download Settings
-- **Quality Options**: Auto, 4K, 1080p, 720p, 480p, 360p
-- **WiFi Only**: Download only on WiFi (recommended)
-- **Storage Location**: Internal/External storage
-- **Auto-cleanup**: Automatic removal of old downloads
-
-### Streaming Settings
-- **Adaptive Bitrate**: Automatic quality adjustment
-- **Buffer Size**: Configurable for different network conditions
-- **Direct Play**: When supported by server and device
+### Windows Desktop
+| Layer | Technology |
+|-------|-----------|
+| Language | Kotlin 2.0.21 |
+| UI | Compose Multiplatform 1.7.0 + Material 3 |
+| Networking | Retrofit + OkHttp (shared) |
+| Images | Coil 3 (multiplatform) |
+| Video | VLCJ 4.8.3 (embedded VLC) |
+| Storage | JSON file (`~/.void-jellyfin/`) |
 
 ---
 
 ## 📄 License
 
 ```
-GPL V3 https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/LICENSE
+GPL V3 — https://github.com/hritwikjohri/Void-for-jellyfin/blob/main/LICENSE
 ```
 
 ---
 
 ## 🙏 Acknowledgments
 
-### Special Thanks
-- **[Jellyfin Project](https://jellyfin.org/)** - For creating the amazing open-source media server
-- **[MPV](https://mpv.io/) & AndroidX Media3 teams** - For excellent media playback capabilities
-- **[@nitanmarcel](https://github.com/nitanmarcel)** - For the mpv-compose library that powers our video playback
-
-### Built With Love Using
-- **Jetpack Compose** - Modern Android UI toolkit
-- **Material You** - Google's design system
-- **Kotlin Coroutines** - Asynchronous programming
-- **Hilt** - Dependency injection
-- **Coil** - Image loading library
+- **[Jellyfin Project](https://jellyfin.org/)** — For the amazing open-source media server
+- **[MPV](https://mpv.io/) & AndroidX Media3** — For excellent media playback
+- **[@nitanmarcel](https://github.com/nitanmarcel)** — For the mpv-compose library
+- **[VideoLAN / VLC](https://www.videolan.org/)** — For the VLCJ desktop player
+- **[JetBrains](https://www.jetbrains.com/)** — For Compose Multiplatform
 
 ---
 
+<div align="center">
+
 ## ☕ Support the Project
 
-
-
-<div align="center">
-If you find Void useful and want to support its development, consider buying me a coffee!
-
+If you find Void useful, consider buying me a coffee!
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-yellow?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/hritwikjohri)
 
@@ -199,20 +172,14 @@ If you find Void useful and want to support its development, consider buying me 
 
 ## 🤝 Collaborators
 
-<div align="center">
-
 | [Hritwik Johri](https://github.com/hritwikjohri) | [KHazard](https://github.com/khazard) |
 |:---:|:---:|
 | Lead Developer | Contributor |
 
-</div>
-
 ---
-
-<div align="center">
 
 **Made with ❤️ by the Void Team**
 
-[⭐ Star this repository](../../stargazers) | [🐛 Report Bug](../../issues) | [💡 Request Feature](../../issues)
+[⭐ Star this repository](../../stargazers) · [🐛 Report Bug](../../issues) · [💡 Request Feature](../../issues)
 
 </div>

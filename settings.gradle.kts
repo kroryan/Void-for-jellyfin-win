@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Void"
 include(":app")
+include(":desktop")
