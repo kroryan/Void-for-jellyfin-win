@@ -40,12 +40,45 @@ A native Windows desktop app built with **Compose Multiplatform**, sharing the s
 3. Launch **Void for Jellyfin** from the Start menu
 4. Enter your Jellyfin server URL and sign in
 
-### Build from source
-```bash
-./gradlew :desktop:run          # Run in dev mode
-./gradlew :desktop:packageExe   # Build installer (.exe)
-./gradlew :desktop:packageMsi   # Build MSI package
+### Build from source (Windows)
+
+> Step-by-step — no experience needed.
+
+**Prerequisites (install these first):**
+
+1. **Git** — [git-scm.com](https://git-scm.com/download/win) → download and install with default settings
+2. **JDK 17** — [adoptium.net](https://adoptium.net/) → download **Temurin 17 LTS**, run the `.msi` installer, make sure to tick "Set JAVA_HOME"
+3. **VLC Media Player (64-bit)** — [videolan.org/vlc](https://www.videolan.org/vlc/) → required at runtime for video playback
+4. *(Optional — to build the installer)* **WiX Toolset 3.x** — [wixtoolset.org](https://wixtoolset.org/) → required only if you want to produce `.msi`/`.exe` installers
+
+**Clone and run:**
+
+```bat
+:: Open a Command Prompt (cmd) or PowerShell window
+git clone https://github.com/hritwikjohri/Void-for-jellyfin-win.git
+cd Void-for-jellyfin-win
+
+:: Run the app directly (no install needed)
+gradlew.bat :desktop:run
 ```
+
+**Build the installer (.exe):**
+
+```bat
+:: Produces the installer at:
+::   desktop\build\compose\binaries\main\exe\Void for Jellyfin-0.2.6.exe
+gradlew.bat :desktop:packageExe
+```
+
+**Build the MSI package:**
+
+```bat
+:: Produces an MSI at:
+::   desktop\build\compose\binaries\main\msi\Void for Jellyfin-0.2.6.msi
+gradlew.bat :desktop:packageMsi
+```
+
+> On first run Gradle will download all dependencies (~500 MB). This is normal. Subsequent builds are fast.
 
 ---
 
@@ -106,11 +139,47 @@ A native Windows desktop app built with **Compose Multiplatform**, sharing the s
 - Android device running **API 26+** (Android 8.0)
 - A running **Jellyfin server** (version 10.8+)
 
-### Installation
+### Installation (APK)
 1. Go to the [Releases](../../releases) page
 2. Download the latest `.apk`
-3. Enable *Install from Unknown Sources* in Android settings
-4. Install the APK and launch Void
+3. On your Android phone go to **Settings → Apps → Special app access → Install unknown apps**, find your browser or file manager, and enable it
+4. Open the downloaded `.apk` and tap **Install**
+5. Launch **Void** and enter your Jellyfin server URL
+
+### Build from source (Android)
+
+> Step-by-step — no experience needed.
+
+**Prerequisites (install these first):**
+
+1. **Git** — [git-scm.com](https://git-scm.com/download/win)
+2. **Android Studio** (latest stable) — [developer.android.com/studio](https://developer.android.com/studio) → install with default settings, let it download the Android SDK automatically
+3. **JDK 17** — comes bundled with Android Studio; nothing extra needed
+
+**Clone and open in Android Studio:**
+
+```bat
+git clone https://github.com/hritwikjohri/Void-for-jellyfin-win.git
+```
+
+1. Open **Android Studio**
+2. Click **File → Open** and select the cloned `Void-for-jellyfin-win` folder
+3. Wait for Gradle sync to finish (first time takes a few minutes)
+4. Connect your Android phone via USB **or** start an emulator (AVD Manager → create a device with API 26+)
+5. Press the green **▶ Run** button — the app will install and launch automatically
+
+**Build a release APK:**
+
+1. In Android Studio: **Build → Generate Signed App Bundle / APK**
+2. Choose **APK** → create or use an existing keystore → follow the wizard
+3. The APK will be in `app/release/app-release.apk`
+
+Or via command line:
+
+```bat
+gradlew.bat :app:assembleRelease
+:: Output: app\build\outputs\apk\release\app-release.apk
+```
 
 ---
 

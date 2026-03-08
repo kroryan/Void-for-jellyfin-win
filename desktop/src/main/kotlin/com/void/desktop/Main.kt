@@ -14,28 +14,13 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.void.desktop.data.api.ApiClient
 import com.void.desktop.ui.App
 import com.void.desktop.ui.components.CustomTitleBar
-import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 
-/** Creates a simple "V" icon for the app in the taskbar. */
-fun createAppIcon(): BufferedImage {
-    val size = 128
-    val img = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
-    val g = img.createGraphics()
-    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-    // Background
-    g.color = java.awt.Color(15, 17, 21)
-    g.fillRoundRect(0, 0, size, size, 24, 24)
-    // "V" letter in brand color
-    g.color = java.awt.Color(155, 208, 255)
-    g.font = java.awt.Font("Arial", java.awt.Font.BOLD, 82)
-    val fm = g.fontMetrics
-    val x = (size - fm.stringWidth("V")) / 2
-    val y = (size + fm.ascent - fm.descent) / 2
-    g.drawString("V", x, y)
-    g.dispose()
-    return img
-}
+/** Loads the real app icon from classpath resources. */
+fun loadAppIcon(): BufferedImage? =
+    object {}.javaClass.getResourceAsStream("/icon.png")?.use {
+        javax.imageio.ImageIO.read(it)
+    }
 
 fun main() {
     // Configure Coil 3 image loader with OkHttp
@@ -84,7 +69,7 @@ fun main() {
         ) {
             // Set taskbar icon
             LaunchedEffect(Unit) {
-                window.iconImages = listOf(createAppIcon())
+                loadAppIcon()?.let { window.iconImages = listOf(it) }
             }
 
             Column(Modifier.fillMaxSize()) {

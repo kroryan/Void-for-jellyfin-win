@@ -53,6 +53,7 @@ compose.desktop {
             windows {
                 menuGroup = "Void for Jellyfin"
                 upgradeUuid = "e4e1c0ea-7a25-4e1a-8e5d-4f6c8f7d8a9b"
+                iconFile.set(project.file("src/main/resources/icon.ico"))
             }
         }
     }
