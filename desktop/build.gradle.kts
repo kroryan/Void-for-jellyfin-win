@@ -52,8 +52,8 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
-            packageName = "Void_for_Jellyfin"
-            packageVersion = "0.2.7"
+            packageName = "VoidJellyfin"
+            packageVersion = "0.2.8"
             description = "A beautiful Jellyfin client for Windows"
             vendor = "Void"
             copyright = "© 2025 Void"
