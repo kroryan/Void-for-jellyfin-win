@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.*
@@ -72,6 +74,10 @@ fun main() {
                 loadAppIcon()?.let { window.iconImages = listOf(it) }
             }
 
+            val baseDensity = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(baseDensity.density * 1.3f, baseDensity.fontScale)
+            ) {
             Column(Modifier.fillMaxSize()) {
                 // Custom title bar (hidden in fullscreen)
                 if (!isFullscreen) {
@@ -93,6 +99,7 @@ fun main() {
                     onFullscreenToggle = { toggleFullscreen() }
                 )
             }
+            } // end CompositionLocalProvider
         }
     }
 }
